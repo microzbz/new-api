@@ -38,6 +38,7 @@ export function isVerificationRequiredError(error) {
       'VERIFICATION_REQUIRED',
       'VERIFICATION_EXPIRED',
       'VERIFICATION_INVALID',
+      'VERIFICATION_METHOD_REQUIRED',
     ];
 
     return verificationCodes.includes(data.code);

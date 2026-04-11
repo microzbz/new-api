@@ -43,6 +43,7 @@ export const useSecureVerification = ({
   const [verificationMethods, setVerificationMethods] = useState({
     has2FA: false,
     hasPasskey: false,
+    hasPassword: true,
     passkeySupported: false,
   });
 
@@ -51,10 +52,11 @@ export const useSecureVerification = ({
 
   // 当前验证状态
   const [verificationState, setVerificationState] = useState({
-    method: null, // '2fa' | 'passkey'
+    method: null, // '2fa' | 'passkey' | 'password'
     loading: false,
     code: '',
     apiCall: null,
+    allowedMethods: null,
   });
 
   // 检查可用的验证方式
@@ -77,6 +79,7 @@ export const useSecureVerification = ({
       loading: false,
       code: '',
       apiCall: null,
+      allowedMethods: null,
     });
     setIsModalVisible(false);
   }, []);
@@ -84,13 +87,46 @@ export const useSecureVerification = ({
   // 开始验证流程
   const startVerification = useCallback(
     async (apiCall, options = {}) => {
-      const { preferredMethod, title, description } = options;
+      const { preferredMethod, title, description, allowedMethods } = options;
 
-      // 检查验证方式
-      const methods = await checkVerificationMethods();
+      const passwordOnly =
+        Array.isArray(allowedMethods) &&
+        allowedMethods.length === 1 &&
+        allowedMethods[0] === 'password';
 
-      if (!methods.has2FA && !methods.hasPasskey) {
-        const errorMessage = t('您需要先启用两步验证或 Passkey 才能执行此操作');
+      const methods = passwordOnly
+        ? {
+            has2FA: false,
+            hasPasskey: false,
+            hasPassword: true,
+            passkeySupported: false,
+          }
+        : await checkVerificationMethods();
+
+      const filteredMethods = {
+        has2FA:
+          methods.has2FA &&
+          (!allowedMethods || allowedMethods.includes('2fa')),
+        hasPasskey:
+          methods.hasPasskey &&
+          (!allowedMethods || allowedMethods.includes('passkey')),
+        hasPassword:
+          methods.hasPassword &&
+          (!allowedMethods || allowedMethods.includes('password')),
+        passkeySupported: methods.passkeySupported,
+      };
+
+      setVerificationMethods(filteredMethods);
+
+      if (
+        !filteredMethods.has2FA &&
+        !filteredMethods.hasPasskey &&
+        !filteredMethods.hasPassword
+      ) {
+        const errorMessage =
+          allowedMethods?.length === 1 && allowedMethods[0] === 'password'
+            ? t('您需要先设置登录密码才能执行此操作')
+            : t('您需要先启用两步验证、Passkey 或设置登录密码才能执行此操作');
         showError(errorMessage);
         onError?.(new Error(errorMessage));
         return false;
@@ -98,20 +134,32 @@ export const useSecureVerification = ({
 
       // 设置默认验证方式
       let defaultMethod = preferredMethod;
-      if (!defaultMethod) {
-        if (methods.hasPasskey && methods.passkeySupported) {
+      const preferredMethodAvailable =
+        defaultMethod &&
+        ((defaultMethod === 'passkey' &&
+          filteredMethods.hasPasskey &&
+          filteredMethods.passkeySupported) ||
+          (defaultMethod === '2fa' && filteredMethods.has2FA) ||
+          (defaultMethod === 'password' && filteredMethods.hasPassword));
+      if (!preferredMethodAvailable) {
+        if (filteredMethods.hasPasskey && filteredMethods.passkeySupported) {
           defaultMethod = 'passkey';
-        } else if (methods.has2FA) {
+        } else if (filteredMethods.has2FA) {
           defaultMethod = '2fa';
+        } else if (filteredMethods.hasPassword) {
+          defaultMethod = 'password';
         }
       }
 
       setVerificationState((prev) => ({
         ...prev,
         method: defaultMethod,
+        loading: false,
+        code: '',
         apiCall,
         title,
         description,
+        allowedMethods: allowedMethods || null,
       }));
       setIsModalVisible(true);
 
@@ -152,7 +200,9 @@ export const useSecureVerification = ({
 
         return result;
       } catch (error) {
-        showError(error.message || t('验证失败，请重试'));
+        if (!error?.__shown) {
+          showError(error.message || t('验证失败，请重试'));
+        }
         onError?.(error);
         throw error;
       } finally {
@@ -196,6 +246,8 @@ export const useSecureVerification = ({
             verificationMethods.hasPasskey &&
             verificationMethods.passkeySupported
           );
+        case 'password':
+          return verificationMethods.hasPassword;
         default:
           return false;
       }
@@ -213,6 +265,9 @@ export const useSecureVerification = ({
     }
     if (verificationMethods.has2FA) {
       return '2fa';
+    }
+    if (verificationMethods.hasPassword) {
+      return 'password';
     }
     return null;
   }, [verificationMethods]);
@@ -266,7 +321,9 @@ export const useSecureVerification = ({
 
     // 便捷属性
     hasAnyVerificationMethod:
-      verificationMethods.has2FA || verificationMethods.hasPasskey,
+      verificationMethods.has2FA ||
+      verificationMethods.hasPasskey ||
+      verificationMethods.hasPassword,
     isLoading: verificationState.loading,
     currentMethod: verificationState.method,
     code: verificationState.code,

@@ -89,8 +89,13 @@ func GetTokenKey(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	fullKey := token.GetFullKey()
+	if fullKey == "" {
+		common.ApiError(c, fmt.Errorf("该令牌无法恢复完整密钥，请重新生成令牌"))
+		return
+	}
 	common.ApiSuccess(c, gin.H{
-		"key": token.GetFullKey(),
+		"key": fullKey,
 	})
 }
 

@@ -77,12 +77,12 @@ func seedToken(t *testing.T, id int, userId int, key string, remainQuota int) {
 	token := &model.Token{
 		Id:          id,
 		UserId:      userId,
-		Key:         key,
 		Name:        "test_token",
 		Status:      common.TokenStatusEnabled,
 		RemainQuota: remainQuota,
 		UsedQuota:   0,
 	}
+	require.NoError(t, token.SetFullKey(key))
 	require.NoError(t, model.DB.Create(token).Error)
 }
 

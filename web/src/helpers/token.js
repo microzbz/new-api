@@ -25,7 +25,11 @@ import { API } from './api';
  * @returns {Promise<string>} 返回不带 sk- 前缀的真实 token key
  */
 export async function fetchTokenKey(tokenId) {
-  const response = await API.post(`/api/token/${tokenId}/key`);
+  const response = await API.post(
+    `/api/token/${tokenId}/key`,
+    {},
+    { skipErrorHandler: true },
+  );
   const { success, data, message } = response.data || {};
   if (!success || !data?.key) {
     throw new Error(message || 'Failed to fetch token key');

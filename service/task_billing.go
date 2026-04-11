@@ -72,7 +72,7 @@ func resolveTokenKey(ctx context.Context, tokenId int, taskID string) string {
 		logger.LogWarn(ctx, fmt.Sprintf("获取令牌 key 失败 (tokenId=%d, task=%s): %s", tokenId, taskID, err.Error()))
 		return ""
 	}
-	return token.Key
+	return token.GetFullKey()
 }
 
 // taskIsSubscription 判断任务是否通过订阅计费。

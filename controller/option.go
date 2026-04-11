@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -307,4 +308,21 @@ func UpdateOption(c *gin.Context) {
 		"message": "",
 	})
 	return
+}
+
+func RunAffDailyCommissionSettlementYesterday(c *gin.Context) {
+	summary, err := service.RunAffDailyCommissionSettlementForYesterday(c.Request.Context(), "manual")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"trigger":          "manual",
+		"settle_date":      summary.SettleDate,
+		"invitee_count":    summary.InviteeCount,
+		"settled_count":    summary.SettledCount,
+		"rewarded_count":   summary.RewardedCount,
+		"consumed_quota":   summary.ConsumedQuota,
+		"commission_quota": summary.CommissionQuota,
+	})
 }

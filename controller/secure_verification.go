@@ -14,6 +14,8 @@ import (
 const (
 	// SecureVerificationSessionKey means the user has fully passed secure verification.
 	SecureVerificationSessionKey = "secure_verified_at"
+	// SecureVerificationMethodSessionKey stores the verification method of the latest successful step-up check.
+	SecureVerificationMethodSessionKey = "secure_verified_method"
 	// PasskeyReadySessionKey means WebAuthn finished and /api/verify can finalize step-up verification.
 	PasskeyReadySessionKey = "secure_passkey_ready_at"
 	// SecureVerificationTimeout 验证有效期（秒）
@@ -23,7 +25,7 @@ const (
 )
 
 type UniversalVerifyRequest struct {
-	Method string `json:"method"` // "2fa" 或 "passkey"
+	Method string `json:"method"` // "2fa"、"passkey" 或 "password"
 	Code   string `json:"code,omitempty"`
 }
 
@@ -62,17 +64,11 @@ func UniversalVerify(c *gin.Context) {
 		return
 	}
 
-	// 检查用户的验证方式
 	twoFA, _ := model.GetTwoFAByUserId(userId)
 	has2FA := twoFA != nil && twoFA.IsEnabled
 
 	passkey, passkeyErr := model.GetPasskeyByUserID(userId)
 	hasPasskey := passkeyErr == nil && passkey != nil
-
-	if !has2FA && !hasPasskey {
-		common.ApiError(c, fmt.Errorf("用户未启用2FA或Passkey"))
-		return
-	}
 
 	// 根据验证方式进行验证
 	var verified bool
@@ -109,6 +105,18 @@ func UniversalVerify(c *gin.Context) {
 		}
 		verifyMethod = "Passkey"
 
+	case "password":
+		if user.Password == "" {
+			common.ApiError(c, fmt.Errorf("用户未设置登录密码"))
+			return
+		}
+		if req.Code == "" {
+			common.ApiError(c, fmt.Errorf("登录密码不能为空"))
+			return
+		}
+		verified = common.ValidatePasswordAndHash(req.Code, user.Password)
+		verifyMethod = "Password"
+
 	default:
 		common.ApiError(c, fmt.Errorf("不支持的验证方式: %s", req.Method))
 		return
@@ -120,7 +128,7 @@ func UniversalVerify(c *gin.Context) {
 	}
 
 	// 验证成功，在 session 中记录时间戳
-	now, err := setSecureVerificationSession(c)
+	now, err := setSecureVerificationSession(c, req.Method)
 	if err != nil {
 		common.ApiError(c, fmt.Errorf("保存验证状态失败: %v", err))
 		return
@@ -139,11 +147,12 @@ func UniversalVerify(c *gin.Context) {
 	})
 }
 
-func setSecureVerificationSession(c *gin.Context) (int64, error) {
+func setSecureVerificationSession(c *gin.Context, method string) (int64, error) {
 	session := sessions.Default(c)
 	session.Delete(PasskeyReadySessionKey)
 	now := time.Now().Unix()
 	session.Set(SecureVerificationSessionKey, now)
+	session.Set(SecureVerificationMethodSessionKey, method)
 	if err := session.Save(); err != nil {
 		return 0, err
 	}

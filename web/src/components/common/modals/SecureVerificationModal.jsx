@@ -17,18 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Modal,
-  Button,
-  Input,
-  Typography,
-  Tabs,
-  TabPane,
-  Space,
-  Spin,
-} from '@douyinfe/semi-ui';
+import { Modal, Button, Input, Typography, Tabs, TabPane } from '@douyinfe/semi-ui';
 
 /**
  * 通用安全验证模态框组件
@@ -56,23 +47,18 @@ const SecureVerificationModal = ({
   description,
 }) => {
   const { t } = useTranslation();
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [verifySuccess, setVerifySuccess] = useState(false);
 
-  const { has2FA, hasPasskey, passkeySupported } = verificationMethods;
+  const { has2FA, hasPasskey, hasPassword, passkeySupported } =
+    verificationMethods;
   const { method, loading, code } = verificationState;
 
-  useEffect(() => {
-    if (visible) {
-      setIsAnimating(true);
-      setVerifySuccess(false);
-    } else {
-      setIsAnimating(false);
-    }
-  }, [visible]);
-
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && code.trim() && !loading && method === '2fa') {
+    if (
+      e.key === 'Enter' &&
+      code.trim() &&
+      !loading &&
+      (method === '2fa' || method === 'password')
+    ) {
       onVerify(method, code);
     }
     if (e.key === 'Escape' && !loading) {
@@ -81,7 +67,7 @@ const SecureVerificationModal = ({
   };
 
   // 如果用户没有启用任何验证方式
-  if (visible && !has2FA && !hasPasskey) {
+  if (visible && !has2FA && !hasPasskey && !hasPassword) {
     return (
       <Modal
         title={title || t('安全验证')}
@@ -109,7 +95,7 @@ const SecureVerificationModal = ({
             {t('需要安全验证')}
           </Typography.Title>
           <Typography.Text type='tertiary'>
-            {t('您需要先启用两步验证或 Passkey 才能查看敏感信息。')}
+            {t('您需要先启用两步验证、Passkey 或设置登录密码才能查看敏感信息。')}
           </Typography.Text>
           <br />
           <Typography.Text type='tertiary'>
@@ -205,6 +191,79 @@ const SecureVerificationModal = ({
                   }}
                 >
                   {t('从认证器应用中获取验证码，或使用备用码')}
+                </Typography.Text>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: '8px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <Button onClick={onCancel} disabled={loading}>
+                    {t('取消')}
+                  </Button>
+                  <Button
+                    theme='solid'
+                    type='primary'
+                    loading={loading}
+                    disabled={!code.trim() || loading}
+                    onClick={() => onVerify(method, code)}
+                  >
+                    {t('验证')}
+                  </Button>
+                </div>
+              </div>
+            </TabPane>
+          )}
+
+          {hasPassword && (
+            <TabPane tab={t('登录密码')} itemKey='password'>
+              <div style={{ paddingTop: '20px' }}>
+                <div style={{ marginBottom: '12px' }}>
+                  <Input
+                    placeholder={t('请输入登录密码')}
+                    value={code}
+                    onChange={onCodeChange}
+                    size='large'
+                    mode='password'
+                    onKeyDown={handleKeyDown}
+                    autoFocus={method === 'password'}
+                    disabled={loading}
+                    prefix={
+                      <svg
+                        style={{
+                          width: 16,
+                          height: 16,
+                          marginRight: 8,
+                          flexShrink: 0,
+                        }}
+                        fill='currentColor'
+                        viewBox='0 0 20 20'
+                      >
+                        <path
+                          fillRule='evenodd'
+                          d='M10 2a4 4 0 00-4 4v2H5a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2h-1V6a4 4 0 00-4-4zm2 6V6a2 2 0 10-4 0v2h4z'
+                          clipRule='evenodd'
+                        />
+                      </svg>
+                    }
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <Typography.Text
+                  type='tertiary'
+                  size='small'
+                  style={{
+                    display: 'block',
+                    marginBottom: '20px',
+                    fontSize: '13px',
+                    lineHeight: '1.5',
+                  }}
+                >
+                  {t('请输入当前账号的登录密码以继续查看或复制敏感信息')}
                 </Typography.Text>
 
                 <div

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Col, Form, Row, Spin } from '@douyinfe/semi-ui';
+import { Button, Col, Form, Popconfirm, Row, Spin } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import {
   compareObjects,
@@ -31,11 +31,13 @@ import {
 export default function SettingsCreditLimit(props) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
+  const [settlementLoading, setSettlementLoading] = useState(false);
   const [inputs, setInputs] = useState({
     QuotaForNewUser: '',
     PreConsumedQuota: '',
     QuotaForInviter: '',
     QuotaForInvitee: '',
+    AffCommissionPercentage: '',
     'quota_setting.enable_free_model_pre_consume': true,
   });
   const refForm = useRef();
@@ -74,6 +76,35 @@ export default function SettingsCreditLimit(props) {
       .finally(() => {
         setLoading(false);
       });
+  }
+
+  async function triggerYesterdayAffSettlement() {
+    setSettlementLoading(true);
+    try {
+      const res = await API.post(
+        '/api/option/aff_daily_commission/settle_yesterday',
+      );
+      const { success, message, data } = res.data;
+      if (!success) {
+        showError(message || t('执行失败'));
+        return;
+      }
+      showSuccess(
+        t(
+          '昨日返佣结算已执行：日期 {{date}}，结算 {{settled}} 人，返佣 {{rewarded}} 人，返佣额度 {{quota}}',
+          {
+            date: data?.settle_date || '-',
+            settled: data?.settled_count || 0,
+            rewarded: data?.rewarded_count || 0,
+            quota: data?.commission_quota || 0,
+          },
+        ),
+      );
+    } catch (error) {
+      showError(t('执行失败'));
+    } finally {
+      setSettlementLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -166,6 +197,26 @@ export default function SettingsCreditLimit(props) {
                   }
                 />
               </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={6}>
+                <Form.InputNumber
+                  label={t('默认邀请日消耗提成比例')}
+                  field={'AffCommissionPercentage'}
+                  step={1}
+                  min={0}
+                  max={100}
+                  suffix={'%'}
+                  extraText={t(
+                    '当用户没有单独设置提成比例时，按邀请用户每日消耗额度使用这里的默认值',
+                  )}
+                  placeholder={t('例如：10')}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      AffCommissionPercentage: String(value ?? 1),
+                    })
+                  }
+                />
+              </Col>
             </Row>
             <Row>
               <Col>
@@ -186,9 +237,22 @@ export default function SettingsCreditLimit(props) {
             </Row>
 
             <Row>
-              <Button size='default' onClick={onSubmit}>
-                {t('保存额度设置')}
-              </Button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button size='default' onClick={onSubmit}>
+                  {t('保存额度设置')}
+                </Button>
+                <Popconfirm
+                  title={t('确认手动执行昨日返佣结算？')}
+                  content={t(
+                    '将立即结算昨天的邀请日消耗返佣，重复执行不会重复发放。',
+                  )}
+                  onConfirm={triggerYesterdayAffSettlement}
+                >
+                  <Button loading={settlementLoading} type='primary'>
+                    {t('手动结算昨日返佣')}
+                  </Button>
+                </Popconfirm>
+              </div>
             </Row>
           </Form.Section>
         </Form>

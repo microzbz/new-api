@@ -12,15 +12,15 @@ import (
 )
 
 type TopUp struct {
-	Id               int     `json:"id"`
-	UserId           int     `json:"user_id" gorm:"index"`
-	Amount           int64   `json:"amount"`
-	Money            float64 `json:"money"`
-	TradeNo          string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
-	PaymentMethod    string  `json:"payment_method" gorm:"type:varchar(50)"`
-	CreateTime       int64   `json:"create_time"`
-	CompleteTime     int64   `json:"complete_time"`
-	Status           string  `json:"status"`
+	Id            int     `json:"id"`
+	UserId        int     `json:"user_id" gorm:"index"`
+	Amount        int64   `json:"amount"`
+	Money         float64 `json:"money"`
+	TradeNo       string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
+	PaymentMethod string  `json:"payment_method" gorm:"type:varchar(50)"`
+	CreateTime    int64   `json:"create_time"`
+	CompleteTime  int64   `json:"complete_time"`
+	Status        string  `json:"status"`
 }
 
 func (topUp *TopUp) Insert() error {
@@ -60,7 +60,7 @@ func Recharge(referenceId string, customerId string) (err error) {
 		return errors.New("未提供支付单号")
 	}
 
-	var quota float64
+	var quotaToAdd int
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -85,8 +85,14 @@ func Recharge(referenceId string, customerId string) (err error) {
 			return err
 		}
 
-		quota = topUp.Money * common.QuotaPerUnit
-		err = tx.Model(&User{}).Where("id = ?", topUp.UserId).Updates(map[string]interface{}{"stripe_customer": customerId, "quota": gorm.Expr("quota + ?", quota)}).Error
+		quotaToAdd = int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+		if quotaToAdd <= 0 {
+			return errors.New("无效的充值额度")
+		}
+		err = tx.Model(&User{}).Where("id = ?", topUp.UserId).Updates(map[string]interface{}{
+			"stripe_customer": customerId,
+			"quota":           gorm.Expr("quota + ?", quotaToAdd),
+		}).Error
 		if err != nil {
 			return err
 		}
@@ -99,7 +105,7 @@ func Recharge(referenceId string, customerId string) (err error) {
 		return errors.New("充值失败，请稍后重试")
 	}
 
-	RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%d", logger.FormatQuota(int(quota)), topUp.Amount))
+	RecordLog(topUp.UserId, LogTypeTopup, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%d", logger.FormatQuota(quotaToAdd), topUp.Amount))
 
 	return nil
 }
@@ -249,7 +255,6 @@ func ManualCompleteTopUp(tradeNo string) error {
 	var userId int
 	var quotaToAdd int
 	var payMoney float64
-
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		topUp := &TopUp{}
 		// 行级锁，避免并发补单

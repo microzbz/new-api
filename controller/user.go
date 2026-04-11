@@ -170,11 +170,12 @@ func Register(c *gin.Context) {
 	affCode := user.AffCode // this code is the inviter's code, not the user's own code
 	inviterId, _ := model.GetUserIdByAffCode(affCode)
 	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.Username,
-		InviterId:   inviterId,
-		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
+		Username:             user.Username,
+		Password:             user.Password,
+		DisplayName:          user.Username,
+		InviterId:            inviterId,
+		Role:                 common.RoleCommonUser, // 明确设置角色为普通用户
+		AffCommissionPercent: -1,
 	}
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
@@ -384,31 +385,33 @@ func GetSelf(c *gin.Context) {
 
 	// 构建响应数据，包含用户信息和权限
 	responseData := map[string]interface{}{
-		"id":                user.Id,
-		"username":          user.Username,
-		"display_name":      user.DisplayName,
-		"role":              user.Role,
-		"status":            user.Status,
-		"email":             user.Email,
-		"github_id":         user.GitHubId,
-		"discord_id":        user.DiscordId,
-		"oidc_id":           user.OidcId,
-		"wechat_id":         user.WeChatId,
-		"telegram_id":       user.TelegramId,
-		"group":             user.Group,
-		"quota":             user.Quota,
-		"used_quota":        user.UsedQuota,
-		"request_count":     user.RequestCount,
-		"aff_code":          user.AffCode,
-		"aff_count":         user.AffCount,
-		"aff_quota":         user.AffQuota,
-		"aff_history_quota": user.AffHistoryQuota,
-		"inviter_id":        user.InviterId,
-		"linux_do_id":       user.LinuxDOId,
-		"setting":           user.Setting,
-		"stripe_customer":   user.StripeCustomer,
-		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
-		"permissions":       permissions,                // 新增权限字段
+		"id":                               user.Id,
+		"username":                         user.Username,
+		"display_name":                     user.DisplayName,
+		"role":                             user.Role,
+		"status":                           user.Status,
+		"email":                            user.Email,
+		"github_id":                        user.GitHubId,
+		"discord_id":                       user.DiscordId,
+		"oidc_id":                          user.OidcId,
+		"wechat_id":                        user.WeChatId,
+		"telegram_id":                      user.TelegramId,
+		"group":                            user.Group,
+		"quota":                            user.Quota,
+		"used_quota":                       user.UsedQuota,
+		"request_count":                    user.RequestCount,
+		"aff_code":                         user.AffCode,
+		"aff_count":                        user.AffCount,
+		"aff_quota":                        user.AffQuota,
+		"aff_history_quota":                user.AffHistoryQuota,
+		"aff_commission_percent":           user.AffCommissionPercent,
+		"effective_aff_commission_percent": user.GetEffectiveAffCommissionPercent(),
+		"inviter_id":                       user.InviterId,
+		"linux_do_id":                      user.LinuxDOId,
+		"setting":                          user.Setting,
+		"stripe_customer":                  user.StripeCustomer,
+		"sidebar_modules":                  userSetting.SidebarModules, // 正确提取sidebar_modules字段
+		"permissions":                      permissions,                // 新增权限字段
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -550,6 +553,10 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
+	if updatedUser.AffCommissionPercent < -1 || updatedUser.AffCommissionPercent > 100 {
+		common.ApiError(c, fmt.Errorf("提成比例必须在 -1 到 100 之间"))
+		return
+	}
 	originUser, err := model.GetUserById(updatedUser.Id, false)
 	if err != nil {
 		common.ApiError(c, err)
@@ -574,6 +581,9 @@ func UpdateUser(c *gin.Context) {
 	}
 	if originUser.Quota != updatedUser.Quota {
 		model.RecordLog(originUser.Id, model.LogTypeManage, fmt.Sprintf("管理员将用户额度从 %s修改为 %s", logger.LogQuota(originUser.Quota), logger.LogQuota(updatedUser.Quota)))
+	}
+	if originUser.AffCommissionPercent != updatedUser.AffCommissionPercent {
+		model.RecordLog(originUser.Id, model.LogTypeManage, fmt.Sprintf("管理员将用户提成比例从 %d%%修改为 %d%%", originUser.AffCommissionPercent, updatedUser.AffCommissionPercent))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -811,6 +821,10 @@ func CreateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
+	if user.AffCommissionPercent < -1 || user.AffCommissionPercent > 100 {
+		common.ApiError(c, fmt.Errorf("提成比例必须在 -1 到 100 之间"))
+		return
+	}
 	if user.DisplayName == "" {
 		user.DisplayName = user.Username
 	}
@@ -821,10 +835,11 @@ func CreateUser(c *gin.Context) {
 	}
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.DisplayName,
-		Role:        user.Role, // 保持管理员设置的角色
+		Username:             user.Username,
+		Password:             user.Password,
+		DisplayName:          user.DisplayName,
+		Role:                 user.Role, // 保持管理员设置的角色
+		AffCommissionPercent: user.AffCommissionPercent,
 	}
 	if err := cleanUser.Insert(0); err != nil {
 		common.ApiError(c, err)

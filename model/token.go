@@ -8,13 +8,18 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type Token struct {
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
-	Key                string         `json:"key" gorm:"type:char(48);uniqueIndex"`
+	Key                string         `json:"key" gorm:"-"`
+	KeyDigest          string         `json:"-" gorm:"column:key;type:char(48);uniqueIndex"`
+	KeyPart1           string         `json:"-" gorm:"type:varchar(32);default:'';index"`
+	KeyPart2           string         `json:"-" gorm:"type:text"`
+	KeyPart3           string         `json:"-" gorm:"type:varchar(32);default:'';index"`
 	Status             int            `json:"status" gorm:"default:1"`
 	Name               string         `json:"name" gorm:"index" `
 	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
@@ -35,6 +40,71 @@ func (token *Token) Clean() {
 	token.Key = ""
 }
 
+func splitTokenKey(key string) (string, string, string, error) {
+	if key == "" {
+		return "", "", "", errors.New("token key is empty")
+	}
+	if len(key) < 3 {
+		return "", "", "", errors.New("token key is too short")
+	}
+	partLen := len(key) / 3
+	part1 := key[:partLen]
+	part2 := key[partLen : partLen*2]
+	part3 := key[partLen*2:]
+	return part1, part2, part3, nil
+}
+
+func generateTokenLookupKey() string {
+	return uuid.NewString()
+}
+
+func isCurrentLookupKey(value string) bool {
+	if value == "" {
+		return false
+	}
+	_, err := uuid.Parse(value)
+	return err == nil
+}
+
+func isLegacyDigestLookupKey(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, ch := range value {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func (token *Token) hasSplitKeyParts() bool {
+	return token.KeyPart1 != "" && token.KeyPart2 != "" && token.KeyPart3 != ""
+}
+
+func (token *Token) isLegacyStoredRawKey() bool {
+	return token.KeyDigest != "" && !isCurrentLookupKey(token.KeyDigest) && !isLegacyDigestLookupKey(token.KeyDigest)
+}
+
+func (token *Token) isLegacyStoredDigest() bool {
+	return token.KeyDigest != "" && isLegacyDigestLookupKey(token.KeyDigest)
+}
+
+func (token *Token) SetFullKey(key string) error {
+	part1, part2, part3, err := splitTokenKey(key)
+	if err != nil {
+		return err
+	}
+	token.Key = key
+	if token.KeyDigest == "" || !isCurrentLookupKey(token.KeyDigest) {
+		token.KeyDigest = generateTokenLookupKey()
+	}
+	token.KeyPart1 = part1
+	token.KeyPart2 = part2
+	token.KeyPart3 = part3
+	return nil
+}
+
 func MaskTokenKey(key string) string {
 	if key == "" {
 		return ""
@@ -49,11 +119,45 @@ func MaskTokenKey(key string) string {
 }
 
 func (token *Token) GetFullKey() string {
+	if token.Key != "" {
+		return token.Key
+	}
+	if token.isLegacyStoredRawKey() {
+		return token.KeyDigest
+	}
+	if !token.hasSplitKeyParts() {
+		return ""
+	}
+	token.Key = token.KeyPart1 + token.KeyPart2 + token.KeyPart3
 	return token.Key
 }
 
 func (token *Token) GetMaskedKey() string {
-	return MaskTokenKey(token.Key)
+	if fullKey := token.GetFullKey(); fullKey != "" {
+		return MaskTokenKey(fullKey)
+	}
+	if token.KeyPart1 == "" && token.KeyPart3 == "" {
+		return ""
+	}
+	prefix := token.KeyPart1
+	if len(prefix) > 4 {
+		prefix = prefix[:4]
+	}
+	suffix := token.KeyPart3
+	if len(suffix) > 4 {
+		suffix = suffix[len(suffix)-4:]
+	}
+	return prefix + "**********" + suffix
+}
+
+func (token *Token) GetStoredLookupKey() string {
+	if token.Key != "" {
+		return token.Key
+	}
+	if fullKey := token.GetFullKey(); fullKey != "" {
+		return fullKey
+	}
+	return ""
 }
 
 func (token *Token) GetIpLimits() []string {
@@ -162,11 +266,21 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		baseQuery = baseQuery.Where("name LIKE ? ESCAPE '!'", keywordPattern)
 	}
 	if token != "" {
-		tokenPattern, err := sanitizeLikePattern(token)
-		if err != nil {
-			return nil, 0, err
+		if strings.Contains(token, "%") {
+			tokenPattern, err := sanitizeLikePattern(token)
+			if err != nil {
+				return nil, 0, err
+			}
+			baseQuery = baseQuery.Where("(key_part1 LIKE ? ESCAPE '!' OR key_part3 LIKE ? ESCAPE '!')", tokenPattern, tokenPattern)
+		} else if part1, part2, part3, err := splitTokenKey(token); err == nil {
+			baseQuery = baseQuery.Where("(key_part1 = ? AND key_part2 = ? AND key_part3 = ?) OR "+commonKeyCol+" = ?", part1, part2, part3, token)
+		} else {
+			tokenPattern, err := sanitizeLikePattern(token)
+			if err != nil {
+				return nil, 0, err
+			}
+			baseQuery = baseQuery.Where("(key_part1 LIKE ? ESCAPE '!' OR key_part3 LIKE ? ESCAPE '!')", tokenPattern, tokenPattern)
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -241,6 +355,9 @@ func GetTokenByIds(id int, userId int) (*Token, error) {
 	token := Token{Id: id, UserId: userId}
 	var err error = nil
 	err = DB.First(&token, "id = ? and user_id = ?", id, userId).Error
+	if err == nil && token.isLegacyStoredRawKey() {
+		token.Key = token.KeyDigest
+	}
 	return &token, err
 }
 
@@ -251,6 +368,9 @@ func GetTokenById(id int) (*Token, error) {
 	token := Token{Id: id}
 	var err error = nil
 	err = DB.First(&token, "id = ?", id).Error
+	if err == nil && token.isLegacyStoredRawKey() {
+		token.Key = token.KeyDigest
+	}
 	if shouldUpdateRedis(true, err) {
 		gopool.Go(func() {
 			if err := cacheSetToken(token); err != nil {
@@ -281,12 +401,28 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
+	part1, part2, part3, splitErr := splitTokenKey(key)
+	if splitErr == nil {
+		err = DB.Where("(key_part1 = ? AND key_part2 = ? AND key_part3 = ?) OR "+commonKeyCol+" = ?", part1, part2, part3, key).First(&token).Error
+	} else {
+		err = DB.Where(commonKeyCol+" = ? OR key_part1 = ? OR key_part3 = ?", key, key, key).First(&token).Error
+	}
+	if err == nil && token != nil {
+		token.Key = key
+		if token.isLegacyStoredRawKey() {
+			_ = token.SetFullKey(key)
+		}
+	}
 	return token, err
 }
 
 func (token *Token) Insert() error {
 	var err error
+	if token.Key != "" {
+		if err = token.SetFullKey(token.Key); err != nil {
+			return err
+		}
+	}
 	err = DB.Create(token).Error
 	return err
 }
@@ -327,7 +463,7 @@ func (token *Token) Delete() (err error) {
 	defer func() {
 		if shouldUpdateRedis(true, err) {
 			gopool.Go(func() {
-				err := cacheDeleteToken(token.Key)
+				err := cacheDeleteToken(token.GetStoredLookupKey())
 				if err != nil {
 					common.SysLog("failed to delete token cache: " + err.Error())
 				}
@@ -474,7 +610,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	if common.RedisEnabled {
 		gopool.Go(func() {
 			for _, t := range tokens {
-				_ = cacheDeleteToken(t.Key)
+				_ = cacheDeleteToken(t.GetStoredLookupKey())
 			}
 		})
 	}

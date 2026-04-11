@@ -181,7 +181,13 @@ const renderInviteInfo = (text, record, t) => {
           {t('邀请')}: {renderNumber(record.aff_count)}
         </Tag>
         <Tag color='white' shape='circle' className='!text-xs'>
-          {t('收益')}: {renderQuota(record.aff_history_quota)}
+          {t('累计收益')}: {renderQuota(record.aff_history_quota)}
+        </Tag>
+        <Tag color='white' shape='circle' className='!text-xs'>
+          {t('提成')}:{' '}
+          {record.aff_commission_percent >= 0
+            ? `${record.aff_commission_percent}%`
+            : t('跟随全局')}
         </Tag>
         <Tag color='white' shape='circle' className='!text-xs'>
           {record.inviter_id === 0
@@ -190,6 +196,16 @@ const renderInviteInfo = (text, record, t) => {
         </Tag>
       </Space>
     </div>
+  );
+};
+
+const renderCommissionPercent = (text, record, t) => {
+  return (
+    <Tag color='white' shape='circle' className='!text-xs'>
+      {record.aff_commission_percent >= 0
+        ? `${record.aff_commission_percent}%`
+        : t('跟随全局')}
+    </Tag>
   );
 };
 
@@ -349,6 +365,11 @@ export const getUsersColumns = ({
       title: t('邀请信息'),
       dataIndex: 'invite',
       render: (text, record, index) => renderInviteInfo(text, record, t),
+    },
+    {
+      title: t('提成比例'),
+      dataIndex: 'aff_commission_percent',
+      render: (text, record, index) => renderCommissionPercent(text, record, t),
     },
     {
       title: '',

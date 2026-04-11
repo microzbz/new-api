@@ -261,6 +261,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	}
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
+	user.AffCommissionPercent = -1
 
 	// Handle affiliate code
 	affCode := session.Get("aff")

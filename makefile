@@ -1,7 +1,7 @@
 FRONTEND_DIR = ./web
 BACKEND_DIR = .
 
-.PHONY: all build-frontend start-backend
+.PHONY: all build-frontend start-backend upgrade-aff-commission-mysql e2e-aff-commission package-release
 
 all: build-frontend start-backend
 
@@ -12,3 +12,12 @@ build-frontend:
 start-backend:
 	@echo "Starting backend dev server..."
 	@cd $(BACKEND_DIR) && go run main.go &
+
+upgrade-aff-commission-mysql:
+	@./scripts/mysql_upgrade_aff_commission.sh
+
+e2e-aff-commission:
+	@./scripts/e2e_aff_commission.sh
+
+package-release:
+	@./scripts/package_release.sh

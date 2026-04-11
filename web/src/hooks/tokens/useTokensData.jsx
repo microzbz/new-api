@@ -29,6 +29,7 @@ import {
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
+import { isVerificationRequiredError } from '../../helpers/secureApiCall';
 import {
   fetchTokenKey as fetchTokenKeyById,
   getServerAddress,
@@ -159,11 +160,18 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
         setResolvedTokenKeys((prev) => ({ ...prev, [tokenId]: fullKey }));
         return fullKey;
       } catch (error) {
+        if (isVerificationRequiredError(error)) {
+          throw error;
+        }
         const normalizedError = new Error(
-          error?.message || t('获取令牌密钥失败'),
+          error?.response?.data?.message ||
+            error?.message ||
+            t('获取令牌密钥失败'),
         );
+        normalizedError.__shown = false;
         if (!suppressError) {
           showError(normalizedError.message);
+          normalizedError.__shown = true;
         }
         throw normalizedError;
       } finally {

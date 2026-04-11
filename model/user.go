@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -21,35 +22,36 @@ const UserNameMaxLength = 20
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id               int            `json:"id"`
-	Username         string         `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password         string         `json:"password" gorm:"not null;" validate:"min=8,max=20"`
-	OriginalPassword string         `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName      string         `json:"display_name" gorm:"index" validate:"max=20"`
-	Role             int            `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status           int            `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email            string         `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId         string         `json:"github_id" gorm:"column:github_id;index"`
-	DiscordId        string         `json:"discord_id" gorm:"column:discord_id;index"`
-	OidcId           string         `json:"oidc_id" gorm:"column:oidc_id;index"`
-	WeChatId         string         `json:"wechat_id" gorm:"column:wechat_id;index"`
-	TelegramId       string         `json:"telegram_id" gorm:"column:telegram_id;index"`
-	VerificationCode string         `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
-	AccessToken      *string        `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota            int            `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota        int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount     int            `json:"request_count" gorm:"type:int;default:0;"`               // request number
-	Group            string         `json:"group" gorm:"type:varchar(64);default:'default'"`
-	AffCode          string         `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
-	AffCount         int            `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
-	AffQuota         int            `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
-	AffHistoryQuota  int            `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
-	InviterId        int            `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
-	DeletedAt        gorm.DeletedAt `gorm:"index"`
-	LinuxDOId        string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
-	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
-	Remark           string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
-	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	Id                   int            `json:"id"`
+	Username             string         `json:"username" gorm:"unique;index" validate:"max=20"`
+	Password             string         `json:"password" gorm:"not null;" validate:"min=8,max=20"`
+	OriginalPassword     string         `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName          string         `json:"display_name" gorm:"index" validate:"max=20"`
+	Role                 int            `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status               int            `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email                string         `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId             string         `json:"github_id" gorm:"column:github_id;index"`
+	DiscordId            string         `json:"discord_id" gorm:"column:discord_id;index"`
+	OidcId               string         `json:"oidc_id" gorm:"column:oidc_id;index"`
+	WeChatId             string         `json:"wechat_id" gorm:"column:wechat_id;index"`
+	TelegramId           string         `json:"telegram_id" gorm:"column:telegram_id;index"`
+	VerificationCode     string         `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
+	AccessToken          *string        `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	Quota                int            `json:"quota" gorm:"type:int;default:0"`
+	UsedQuota            int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	RequestCount         int            `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	Group                string         `json:"group" gorm:"type:varchar(64);default:'default'"`
+	AffCode              string         `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
+	AffCount             int            `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
+	AffQuota             int            `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度（兼容旧版手动划转逻辑）
+	AffHistoryQuota      int            `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
+	AffCommissionPercent int            `json:"aff_commission_percent" gorm:"type:int;default:-1;column:aff_commission_percent"`
+	InviterId            int            `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	DeletedAt            gorm.DeletedAt `gorm:"index"`
+	LinuxDOId            string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
+	Setting              string         `json:"setting" gorm:"type:text;column:setting"`
+	Remark               string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
+	StripeCustomer       string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -339,6 +341,97 @@ func inviteUser(inviterId int) (err error) {
 	return DB.Save(user).Error
 }
 
+type AffCommissionReward struct {
+	InviterId int
+	Percent   int
+	Quota     int
+}
+
+func (user *User) GetEffectiveAffCommissionPercent() int {
+	if user.AffCommissionPercent >= 0 {
+		return user.AffCommissionPercent
+	}
+	return common.AffCommissionPercentage
+}
+
+func buildInviterCommissionRewardTx(tx *gorm.DB, inviteeUserId int, baseQuota int) (AffCommissionReward, error) {
+	reward := AffCommissionReward{}
+	if tx == nil || inviteeUserId == 0 || baseQuota <= 0 {
+		return reward, nil
+	}
+
+	var invitee User
+	err := tx.Select("id", "inviter_id").Where("id = ?", inviteeUserId).First(&invitee).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return reward, nil
+		}
+		return reward, err
+	}
+	if invitee.InviterId == 0 {
+		return reward, nil
+	}
+
+	var inviter User
+	err = tx.Select("id", "aff_commission_percent").Where("id = ?", invitee.InviterId).First(&inviter).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return reward, nil
+		}
+		return reward, err
+	}
+
+	percent := inviter.GetEffectiveAffCommissionPercent()
+	if percent <= 0 {
+		return reward, nil
+	}
+	if percent > 100 {
+		percent = 100
+	}
+
+	commissionQuota := int(decimal.NewFromInt(int64(baseQuota)).
+		Mul(decimal.NewFromInt(int64(percent))).
+		Div(decimal.NewFromInt(100)).
+		IntPart())
+	if commissionQuota <= 0 {
+		return reward, nil
+	}
+
+	reward.InviterId = inviter.Id
+	reward.Percent = percent
+	reward.Quota = commissionQuota
+	return reward, nil
+}
+
+func grantInviterCommissionRewardTx(tx *gorm.DB, reward AffCommissionReward) error {
+	if tx == nil || reward.InviterId == 0 || reward.Quota <= 0 {
+		return nil
+	}
+	return tx.Model(&User{}).Where("id = ?", reward.InviterId).Updates(map[string]interface{}{
+		"quota":       gorm.Expr("quota + ?", reward.Quota),
+		"aff_history": gorm.Expr("aff_history + ?", reward.Quota),
+	}).Error
+}
+
+func applyInviterCommissionTx(tx *gorm.DB, inviteeUserId int, baseQuota int) (AffCommissionReward, error) {
+	reward, err := buildInviterCommissionRewardTx(tx, inviteeUserId, baseQuota)
+	if err != nil {
+		return reward, err
+	}
+	err = grantInviterCommissionRewardTx(tx, reward)
+	return reward, err
+}
+
+func GrantInviterCommission(inviteeUserId int, baseQuota int) (AffCommissionReward, error) {
+	reward := AffCommissionReward{}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var txErr error
+		reward, txErr = applyInviterCommissionTx(tx, inviteeUserId, baseQuota)
+		return txErr
+	})
+	return reward, err
+}
+
 func (user *User) TransferAffQuotaToQuota(quota int) error {
 	// 检查quota是否小于最小额度
 	if float64(quota) < common.QuotaPerUnit {
@@ -395,9 +488,14 @@ func (user *User) Insert(inviterId int) error {
 		user.SetSetting(defaultSetting)
 	}
 
-	result := DB.Create(user)
+	result := DB.Select("*").Create(user)
 	if result.Error != nil {
 		return result.Error
+	}
+	if user.AffCommissionPercent == 0 {
+		if err := DB.Exec("UPDATE users SET aff_commission_percent = 0 WHERE username = ?", user.Username).Error; err != nil {
+			return err
+		}
 	}
 
 	// 用户创建成功后，根据角色初始化边栏配置
@@ -452,9 +550,14 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 		user.SetSetting(defaultSetting)
 	}
 
-	result := tx.Create(user)
+	result := tx.Select("*").Create(user)
 	if result.Error != nil {
 		return result.Error
+	}
+	if user.AffCommissionPercent == 0 {
+		if err := tx.Exec("UPDATE users SET aff_commission_percent = 0 WHERE username = ?", user.Username).Error; err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -520,11 +623,12 @@ func (user *User) Edit(updatePassword bool) error {
 
 	newUser := *user
 	updates := map[string]interface{}{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"quota":        newUser.Quota,
-		"remark":       newUser.Remark,
+		"username":               newUser.Username,
+		"display_name":           newUser.DisplayName,
+		"group":                  newUser.Group,
+		"quota":                  newUser.Quota,
+		"remark":                 newUser.Remark,
+		"aff_commission_percent": newUser.AffCommissionPercent,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password

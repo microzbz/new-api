@@ -87,6 +87,7 @@ const EditUserModal = (props) => {
     quota: 0,
     group: 'default',
     remark: '',
+    aff_commission_percent: -1,
   });
 
   const fetchGroups = async () => {
@@ -134,6 +135,10 @@ const EditUserModal = (props) => {
     let payload = { ...values };
     if (typeof payload.quota === 'string')
       payload.quota = parseInt(payload.quota) || 0;
+    if (typeof payload.aff_commission_percent === 'string') {
+      payload.aff_commission_percent =
+        parseInt(payload.aff_commission_percent, 10) || 0;
+    }
     if (userId) {
       payload.id = parseInt(userId);
     }
@@ -326,6 +331,43 @@ const EditUserModal = (props) => {
                     </Row>
                   </Card>
                 )}
+
+                <Card className='!rounded-2xl shadow-sm border-0'>
+                  <div className='flex items-center mb-2'>
+                    <Avatar
+                      size='small'
+                      color='orange'
+                      className='mr-2 shadow-md'
+                    >
+                      %
+                    </Avatar>
+                    <div>
+                      <Text className='text-lg font-medium'>
+                        {t('返佣设置')}
+                      </Text>
+                      <div className='text-xs text-gray-600'>
+                        {t('针对单个用户设置邀请日消耗返佣比例')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <Row gutter={12}>
+                    <Col span={24}>
+                      <Form.InputNumber
+                        field='aff_commission_percent'
+                        label={t('邀请日消耗提成比例')}
+                        min={-1}
+                        max={100}
+                        step={1}
+                        suffix={'%'}
+                        extraText={t(
+                          '填写 -1 跟随全局默认值，0 表示关闭提成，1-100 表示该用户邀请收益按每日消耗单独结算的比例',
+                        )}
+                        style={{ width: '100%' }}
+                      />
+                    </Col>
+                  </Row>
+                </Card>
 
                 {/* 绑定信息入口 */}
                 {userId && (

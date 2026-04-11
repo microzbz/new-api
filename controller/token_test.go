@@ -55,7 +55,7 @@ func setupTokenControllerTestDB(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 
-	if err := db.AutoMigrate(&model.Token{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Log{}, &model.Token{}); err != nil {
 		t.Fatalf("failed to migrate token table: %v", err)
 	}
 
@@ -75,7 +75,6 @@ func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string
 	token := &model.Token{
 		UserId:         userID,
 		Name:           name,
-		Key:            rawKey,
 		Status:         common.TokenStatusEnabled,
 		CreatedTime:    1,
 		AccessedTime:   1,
@@ -83,6 +82,9 @@ func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string
 		RemainQuota:    100,
 		UnlimitedQuota: true,
 		Group:          "default",
+	}
+	if err := token.SetFullKey(rawKey); err != nil {
+		t.Fatalf("failed to split token key: %v", err)
 	}
 	if err := db.Create(token).Error; err != nil {
 		t.Fatalf("failed to create token: %v", err)
@@ -271,5 +273,73 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	}
 	if strings.Contains(unauthorizedRecorder.Body.String(), token.Key) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
+	}
+}
+
+func TestTokenStorageDoesNotPersistRawKey(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	token := seedToken(t, db, 1, "stored-token", "owner1234token5678")
+
+	var stored struct {
+		Key      string
+		KeyPart1 string
+		KeyPart2 string
+		KeyPart3 string
+	}
+	if err := db.Table("tokens").Select("key, key_part1, key_part2, key_part3").Where("id = ?", token.Id).Take(&stored).Error; err != nil {
+		t.Fatalf("failed to load stored token row: %v", err)
+	}
+	if stored.Key == token.Key {
+		t.Fatalf("expected key column to store a surrogate lookup value instead of raw key")
+	}
+	if stored.KeyPart1 == "" || stored.KeyPart2 == "" || stored.KeyPart3 == "" {
+		t.Fatalf("expected token segments to be persisted, got %+v", stored)
+	}
+	if stored.KeyPart1+stored.KeyPart2+stored.KeyPart3 != token.Key {
+		t.Fatalf("expected split key parts to reconstruct raw key")
+	}
+}
+
+func TestGetTokenKeyFallsBackToLegacyRawKeyColumn(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	rawKey := "legacyrawtokenkey123456789012345678901234567"
+	partLen := len(rawKey) / 3
+	part1 := rawKey[:partLen]
+	part3 := rawKey[partLen*2:]
+
+	legacyToken := &model.Token{
+		UserId:         1,
+		Name:           "legacy-token",
+		KeyDigest:      rawKey,
+		KeyPart1:       part1,
+		KeyPart2:       strings.Repeat("x", 60),
+		KeyPart3:       part3,
+		Status:         common.TokenStatusEnabled,
+		CreatedTime:    1,
+		AccessedTime:   1,
+		ExpiredTime:    -1,
+		RemainQuota:    100,
+		UnlimitedQuota: true,
+		Group:          "default",
+	}
+	if err := db.Create(legacyToken).Error; err != nil {
+		t.Fatalf("failed to create legacy token: %v", err)
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/"+strconv.Itoa(legacyToken.Id)+"/key", nil, 1)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(legacyToken.Id)}}
+	GetTokenKey(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected legacy key fetch to succeed, got message: %s", response.Message)
+	}
+
+	var keyData tokenKeyResponse
+	if err := common.Unmarshal(response.Data, &keyData); err != nil {
+		t.Fatalf("failed to decode legacy token key response: %v", err)
+	}
+	if keyData.Key != rawKey {
+		t.Fatalf("expected raw legacy key %q, got %q", rawKey, keyData.Key)
 	}
 }

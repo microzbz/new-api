@@ -22,12 +22,13 @@ import {
   Avatar,
   Typography,
   Card,
-  Button,
   Input,
   Badge,
+  Button,
   Space,
+  Tag,
 } from '@douyinfe/semi-ui';
-import { Copy, Users, BarChart2, TrendingUp, Gift, Zap } from 'lucide-react';
+import { Copy, Users, BarChart2, TrendingUp, Gift } from 'lucide-react';
 
 const { Text } = Typography;
 
@@ -35,10 +36,19 @@ const InvitationCard = ({
   t,
   userState,
   renderQuota,
-  setOpenTransfer,
   affLink,
   handleAffLinkClick,
 }) => {
+  const effectiveAffCommissionPercent =
+    userState?.user?.effective_aff_commission_percent ??
+    (userState?.user?.aff_commission_percent >= 0
+      ? userState.user.aff_commission_percent
+      : 0);
+  const affCommissionScopeLabel =
+    userState?.user?.aff_commission_percent >= 0
+      ? t('个人设置')
+      : t('跟随全局');
+
   return (
     <Card className='!rounded-2xl shadow-sm border-0'>
       {/* 卡片头部 */}
@@ -51,6 +61,14 @@ const InvitationCard = ({
             {t('邀请奖励')}
           </Typography.Text>
           <div className='text-xs'>{t('邀请好友获得额外奖励')}</div>
+          <div className='mt-2 flex items-center gap-2 flex-wrap'>
+            <Tag color='green' shape='circle' size='small'>
+              {t('当前提成比例')} {effectiveAffCommissionPercent}%
+            </Tag>
+            <Text type='tertiary' className='text-xs'>
+              {affCommissionScopeLabel}
+            </Text>
+          </div>
         </div>
       </div>
 
@@ -76,31 +94,17 @@ const InvitationCard = ({
                   <Text strong style={{ color: 'white', fontSize: '16px' }}>
                     {t('收益统计')}
                   </Text>
-                  <Button
-                    type='primary'
-                    theme='solid'
-                    size='small'
-                    disabled={
-                      !userState?.user?.aff_quota ||
-                      userState?.user?.aff_quota <= 0
-                    }
-                    onClick={() => setOpenTransfer(true)}
-                    className='!rounded-lg'
-                  >
-                    <Zap size={12} className='mr-1' />
-                    {t('划转到余额')}
-                  </Button>
                 </div>
 
                 {/* 统计数据 */}
                 <div className='grid grid-cols-3 gap-6 mt-4'>
-                  {/* 待使用收益 */}
+                  {/* 当前余额 */}
                   <div className='text-center'>
                     <div
                       className='text-base sm:text-2xl font-bold mb-2'
                       style={{ color: 'white' }}
                     >
-                      {renderQuota(userState?.user?.aff_quota || 0)}
+                      {renderQuota(userState?.user?.quota || 0)}
                     </div>
                     <div className='flex items-center justify-center text-sm'>
                       <TrendingUp
@@ -114,12 +118,12 @@ const InvitationCard = ({
                           fontSize: '12px',
                         }}
                       >
-                        {t('待使用收益')}
+                        {t('当前余额')}
                       </Text>
                     </div>
                   </div>
 
-                  {/* 总收益 */}
+                  {/* 累计收益 */}
                   <div className='text-center'>
                     <div
                       className='text-base sm:text-2xl font-bold mb-2'
@@ -139,7 +143,7 @@ const InvitationCard = ({
                           fontSize: '12px',
                         }}
                       >
-                        {t('总收益')}
+                        {t('累计收益')}
                       </Text>
                     </div>
                   </div>
@@ -202,14 +206,14 @@ const InvitationCard = ({
             <div className='flex items-start gap-2'>
               <Badge dot type='success' />
               <Text type='tertiary' className='text-sm'>
-                {t('邀请好友注册，好友充值后您可获得相应奖励')}
+                {t('邀请好友注册后，系统会按好友每日消耗的额度为您结算奖励')}
               </Text>
             </div>
 
             <div className='flex items-start gap-2'>
               <Badge dot type='success' />
               <Text type='tertiary' className='text-sm'>
-                {t('通过划转功能将奖励额度转入到您的账户余额中')}
+                {t('系统会在次日按比例自动把返佣转入您的账户余额中')}
               </Text>
             </div>
 

@@ -259,6 +259,7 @@ func migrateDB() error {
 		&Channel{},
 		&Token{},
 		&User{},
+		&AffDailyCommissionSettlement{},
 		&PasskeyCredential{},
 		&Option{},
 		&Redemption{},
@@ -293,6 +294,15 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := migrateTokenKeyStorage(); err != nil {
+		return err
+	}
+	if err := migrateTokenKeyPart2ToPlaintext(); err != nil {
+		return err
+	}
+	if err := settleLegacyAffQuotaToQuota(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -307,6 +317,7 @@ func migrateDBFast() error {
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
 		{&User{}, "User"},
+		{&AffDailyCommissionSettlement{}, "AffDailyCommissionSettlement"},
 		{&PasskeyCredential{}, "PasskeyCredential"},
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
@@ -361,8 +372,48 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := settleLegacyAffQuotaToQuota(); err != nil {
+		return err
+	}
 	common.SysLog("database migrated")
 	return nil
+}
+
+func settleLegacyAffQuotaToQuota() error {
+	if !DB.Migrator().HasTable(&User{}) {
+		return nil
+	}
+
+	type legacyAffQuotaUser struct {
+		Id       int
+		AffQuota int
+	}
+
+	var users []legacyAffQuotaUser
+	if err := DB.Model(&User{}).
+		Select("id", "aff_quota").
+		Where("aff_quota > ?", 0).
+		Find(&users).Error; err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		return nil
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		for _, user := range users {
+			if err := tx.Model(&User{}).
+				Where("id = ? AND aff_quota = ?", user.Id, user.AffQuota).
+				Updates(map[string]interface{}{
+					"quota":     gorm.Expr("quota + ?", user.AffQuota),
+					"aff_quota": 0,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		common.SysLog(fmt.Sprintf("settled legacy aff_quota into quota for %d users", len(users)))
+		return nil
+	})
 }
 
 func migrateLOGDB() error {
@@ -500,6 +551,114 @@ func migrateTokenModelLimitsToText() error {
 		common.SysLog(fmt.Sprintf("Successfully migrated %s.%s to text", tableName, columnName))
 	}
 	return nil
+}
+
+func migrateTokenKeyStorage() error {
+	if !DB.Migrator().HasTable(&Token{}) {
+		return nil
+	}
+	if !DB.Migrator().HasColumn(&Token{}, "key_part1") || !DB.Migrator().HasColumn(&Token{}, "key_part2") || !DB.Migrator().HasColumn(&Token{}, "key_part3") {
+		return nil
+	}
+
+	const batchSize = 100
+	lastID := 0
+	for {
+		var tokens []Token
+		err := DB.Select("id", commonKeyCol, "key_part1", "key_part2", "key_part3").
+			Where("id > ? AND "+commonKeyCol+" <> ''", lastID).
+			Order("id ASC").
+			Limit(batchSize).
+			Find(&tokens).Error
+		if err != nil {
+			return err
+		}
+		if len(tokens) == 0 {
+			return nil
+		}
+
+		for _, token := range tokens {
+			lastID = token.Id
+			rawKey := token.KeyDigest
+			if !token.isLegacyStoredRawKey() || rawKey == "" {
+				continue
+			}
+			normalized := Token{}
+			if err := normalized.SetFullKey(rawKey); err != nil {
+				return fmt.Errorf("failed to migrate token key storage for token %d: %w", token.Id, err)
+			}
+			if err := DB.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]any{
+				"key":       normalized.KeyDigest,
+				"key_part1": normalized.KeyPart1,
+				"key_part2": normalized.KeyPart2,
+				"key_part3": normalized.KeyPart3,
+			}).Error; err != nil {
+				return fmt.Errorf("failed to persist migrated token %d: %w", token.Id, err)
+			}
+		}
+	}
+}
+
+func migrateTokenKeyPart2ToPlaintext() error {
+	if !DB.Migrator().HasTable(&Token{}) {
+		return nil
+	}
+	if !DB.Migrator().HasColumn(&Token{}, "key_part1") || !DB.Migrator().HasColumn(&Token{}, "key_part2") || !DB.Migrator().HasColumn(&Token{}, "key_part3") {
+		return nil
+	}
+
+	const batchSize = 100
+	for {
+		var tokens []Token
+		err := DB.Select("id", commonKeyCol, "key_part1", "key_part2", "key_part3").
+			Where("key_part1 <> '' AND key_part2 <> '' AND key_part3 <> '' AND LENGTH(key_part2) > ?", 32).
+			Limit(batchSize).
+			Find(&tokens).Error
+		if err != nil {
+			return err
+		}
+		if len(tokens) == 0 {
+			return nil
+		}
+
+		updatedAny := false
+		for _, token := range tokens {
+			if token.isLegacyStoredRawKey() {
+				normalized := Token{}
+				if err := normalized.SetFullKey(token.KeyDigest); err != nil {
+					return fmt.Errorf("failed to normalize legacy token %d key parts: %w", token.Id, err)
+				}
+				if err := DB.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]any{
+					"key":       normalized.KeyDigest,
+					"key_part1": normalized.KeyPart1,
+					"key_part2": normalized.KeyPart2,
+					"key_part3": normalized.KeyPart3,
+				}).Error; err != nil {
+					return fmt.Errorf("failed to persist normalized token %d: %w", token.Id, err)
+				}
+				updatedAny = true
+				continue
+			}
+			part2, err := common.DecryptString(token.KeyPart2)
+			if err != nil {
+				continue
+			}
+			lookupKey := token.KeyDigest
+			if lookupKey == "" || !isCurrentLookupKey(lookupKey) {
+				lookupKey = generateTokenLookupKey()
+			}
+			if err := DB.Model(&Token{}).Where("id = ?", token.Id).Updates(map[string]any{
+				"key":       lookupKey,
+				"key_part2": part2,
+			}).Error; err != nil {
+				return fmt.Errorf("failed to convert token %d key_part2 to plaintext: %w", token.Id, err)
+			}
+			updatedAny = true
+		}
+		if !updatedAny {
+			return nil
+		}
+	}
 }
 
 // migrateSubscriptionPlanPriceAmount migrates price_amount column from float/double to decimal(10,6)

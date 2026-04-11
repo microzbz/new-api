@@ -49,6 +49,7 @@ const AddUserModal = (props) => {
     display_name: '',
     password: '',
     remark: '',
+    aff_commission_percent: -1,
   });
 
   const submit = async (values) => {
@@ -171,6 +172,41 @@ const AddUserModal = (props) => {
                       label={t('备注')}
                       placeholder={t('请输入备注（仅管理员可见）')}
                       showClear
+                    />
+                  </Col>
+                </Row>
+              </Card>
+
+              <Card className='!rounded-2xl shadow-sm border-0 mt-3'>
+                <div className='flex items-center mb-2'>
+                  <Avatar
+                    size='small'
+                    color='orange'
+                    className='mr-2 shadow-md'
+                  >
+                    %
+                  </Avatar>
+                  <div>
+                    <Text className='text-lg font-medium'>{t('返佣设置')}</Text>
+                    <div className='text-xs text-gray-600'>
+                      {t('为该用户预设邀请日消耗返佣比例')}
+                    </div>
+                  </div>
+                </div>
+
+                <Row gutter={12}>
+                  <Col span={24}>
+                    <Form.InputNumber
+                      field='aff_commission_percent'
+                      label={t('邀请日消耗提成比例')}
+                      min={-1}
+                      max={100}
+                      step={1}
+                      suffix={'%'}
+                      extraText={t(
+                        '填写 -1 跟随全局默认值，0 表示关闭提成，1-100 表示该用户邀请收益按每日消耗单独结算的比例',
+                      )}
+                      style={{ width: '100%' }}
                     />
                   </Col>
                 </Row>

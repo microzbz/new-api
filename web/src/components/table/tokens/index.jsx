@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Notification,
   Button,
@@ -41,7 +41,9 @@ import EditTokenModal from './modals/EditTokenModal';
 import CCSwitchModal from './modals/CCSwitchModal';
 import { useTokensData } from '../../../hooks/tokens/useTokensData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
+import { useSecureVerification } from '../../../hooks/common/useSecureVerification';
 import { createCardProPagination } from '../../../helpers/utils';
+import SecureVerificationModal from '../../common/modals/SecureVerificationModal';
 
 function TokensPage() {
   // Define the function first, then pass it into the hook to avoid TDZ errors
@@ -66,6 +68,29 @@ function TokensPage() {
   const [prefillKey, setPrefillKey] = useState('');
   const [ccSwitchVisible, setCCSwitchVisible] = useState(false);
   const [ccSwitchKey, setCCSwitchKey] = useState('');
+  const {
+    isModalVisible,
+    verificationMethods,
+    verificationState,
+    withVerification,
+    executeVerification,
+    cancelVerification,
+    setVerificationCode,
+    switchVerificationMethod,
+  } = useSecureVerification();
+
+  const runWithPasswordVerification = useCallback(
+    async (apiCall) =>
+      await withVerification(apiCall, {
+        title: tokensData.t('验证登录密码'),
+        description: tokensData.t(
+          '查看或复制令牌前，请先输入当前账号的登录密码。',
+        ),
+        preferredMethod: 'password',
+        allowedMethods: ['password'],
+      }),
+    [tokensData.t, withVerification],
+  );
 
   // Keep latest data for handlers inside notifications
   useEffect(() => {
@@ -202,68 +227,78 @@ function TokensPage() {
 
   // Prefill to Fluent handler
   const handlePrefillToFluent = async () => {
-    const {
-      tokens,
-      selectedKeys,
-      t,
-      selectedModel: chosenModel,
-      prefillKey: overrideKey,
-      fetchTokenKey,
-    } = latestRef.current;
-    const container = document.getElementById('fluent-new-api-container');
-    if (!container) {
-      Toast.error(t('未检测到 Fluent 容器'));
-      return;
-    }
-
-    if (!chosenModel) {
-      Toast.warning(t('请选择模型'));
-      return;
-    }
-
-    let status = localStorage.getItem('status');
-    let serverAddress = '';
-    if (status) {
-      try {
-        status = JSON.parse(status);
-        serverAddress = status.server_address || '';
-      } catch (_) {}
-    }
-    if (!serverAddress) serverAddress = window.location.origin;
-
-    let apiKeyToUse = '';
-    if (overrideKey) {
-      apiKeyToUse = 'sk-' + overrideKey;
-    } else {
-      const token =
-        selectedKeys && selectedKeys.length === 1
-          ? selectedKeys[0]
-          : tokens && tokens.length > 0
-            ? tokens[0]
-            : null;
-      if (!token) {
-        Toast.warning(t('没有可用令牌用于填充'));
+    const doPrefillToFluent = async () => {
+      const {
+        tokens,
+        selectedKeys,
+        t,
+        selectedModel: chosenModel,
+        prefillKey: overrideKey,
+        fetchTokenKey,
+      } = latestRef.current;
+      const container = document.getElementById('fluent-new-api-container');
+      if (!container) {
+        Toast.error(t('未检测到 Fluent 容器'));
         return;
       }
-      try {
-        apiKeyToUse = 'sk-' + (await fetchTokenKey(token));
-      } catch (_) {
+
+      if (!chosenModel) {
+        Toast.warning(t('请选择模型'));
         return;
       }
-    }
 
-    const payload = {
-      id: 'new-api',
-      baseUrl: serverAddress,
-      apiKey: apiKeyToUse,
-      model: chosenModel,
+      let status = localStorage.getItem('status');
+      let serverAddress = '';
+      if (status) {
+        try {
+          status = JSON.parse(status);
+          serverAddress = status.server_address || '';
+        } catch (_) {}
+      }
+      if (!serverAddress) serverAddress = window.location.origin;
+
+      let apiKeyToUse = '';
+      if (overrideKey) {
+        apiKeyToUse = 'sk-' + overrideKey;
+      } else {
+        const token =
+          selectedKeys && selectedKeys.length === 1
+            ? selectedKeys[0]
+            : tokens && tokens.length > 0
+              ? tokens[0]
+              : null;
+        if (!token) {
+          Toast.warning(t('没有可用令牌用于填充'));
+          return;
+        }
+        try {
+          apiKeyToUse = 'sk-' + (await fetchTokenKey(token));
+        } catch (_) {
+          return;
+        }
+      }
+
+      const payload = {
+        id: 'new-api',
+        baseUrl: serverAddress,
+        apiKey: apiKeyToUse,
+        model: chosenModel,
+      };
+
+      container.dispatchEvent(
+        new CustomEvent('fluent:prefill', { detail: payload }),
+      );
+      Toast.success(t('已发送到 Fluent'));
+      Notification.close('fluent-detected');
     };
 
-    container.dispatchEvent(
-      new CustomEvent('fluent:prefill', { detail: payload }),
-    );
-    Toast.success(t('已发送到 Fluent'));
-    Notification.close('fluent-detected');
+    try {
+      if (latestRef.current.prefillKey) {
+        await doPrefillToFluent();
+      } else {
+        await runWithPasswordVerification(doPrefillToFluent);
+      }
+    } catch (_) {}
   };
 
   // Show notification when Fluent container is available
@@ -357,7 +392,6 @@ function TokensPage() {
     selectedKeys,
     setEditingToken,
     setShowEdit,
-    batchCopyTokens,
     batchDeleteTokens,
 
     // Filters state
@@ -374,6 +408,59 @@ function TokensPage() {
     // Translation
     t,
   } = tokensData;
+
+  const secureToggleTokenVisibility = useCallback(
+    async (record) => {
+      try {
+        await runWithPasswordVerification(() =>
+          tokensData.toggleTokenVisibility(record),
+        );
+      } catch (_) {}
+    },
+    [runWithPasswordVerification, tokensData],
+  );
+
+  const secureCopyTokenKey = useCallback(
+    async (record) => {
+      try {
+        await runWithPasswordVerification(() => tokensData.copyTokenKey(record));
+      } catch (_) {}
+    },
+    [runWithPasswordVerification, tokensData],
+  );
+
+  const secureCopyTokenConnectionString = useCallback(
+    async (record) => {
+      try {
+        await runWithPasswordVerification(() =>
+          tokensData.copyTokenConnectionString(record),
+        );
+      } catch (_) {}
+    },
+    [runWithPasswordVerification, tokensData],
+  );
+
+  const secureOnOpenLink = useCallback(
+    async (type, url, record) => {
+      try {
+        await runWithPasswordVerification(() =>
+          tokensData.onOpenLink(type, url, record),
+        );
+      } catch (_) {}
+    },
+    [runWithPasswordVerification, tokensData],
+  );
+
+  const secureBatchCopyTokens = useCallback(
+    async (copyType) => {
+      try {
+        await runWithPasswordVerification(() =>
+          tokensData.batchCopyTokens(copyType),
+        );
+      } catch (_) {}
+    },
+    [runWithPasswordVerification, tokensData],
+  );
 
   return (
     <>
@@ -406,7 +493,7 @@ function TokensPage() {
               selectedKeys={selectedKeys}
               setEditingToken={setEditingToken}
               setShowEdit={setShowEdit}
-              batchCopyTokens={batchCopyTokens}
+              batchCopyTokens={secureBatchCopyTokens}
               batchDeleteTokens={batchDeleteTokens}
               t={t}
             />
@@ -434,8 +521,26 @@ function TokensPage() {
         })}
         t={tokensData.t}
       >
-        <TokensTable {...tokensData} />
+        <TokensTable
+          {...tokensData}
+          toggleTokenVisibility={secureToggleTokenVisibility}
+          copyTokenKey={secureCopyTokenKey}
+          copyTokenConnectionString={secureCopyTokenConnectionString}
+          onOpenLink={secureOnOpenLink}
+        />
       </CardPro>
+
+      <SecureVerificationModal
+        visible={isModalVisible}
+        verificationMethods={verificationMethods}
+        verificationState={verificationState}
+        onVerify={executeVerification}
+        onCancel={cancelVerification}
+        onCodeChange={setVerificationCode}
+        onMethodSwitch={switchVerificationMethod}
+        title={verificationState.title}
+        description={verificationState.description}
+      />
     </>
   );
 }

@@ -3376,6 +3376,12 @@
     "从剪贴板粘贴配置": "Paste Config",
     "剪贴板中未检测到连接信息": "No connection info found in clipboard",
     "连接信息已填入": "Connection info applied",
-    "无法读取剪贴板": "Cannot read clipboard"
+    "无法读取剪贴板": "Cannot read clipboard",
+    "确认手动执行昨日返佣结算？": "Confirm manual execution of yesterday's referral commission settlement?",
+    "将立即结算昨天的邀请日消耗返佣，重复执行不会重复发放。": "This will immediately settle yesterday's referral daily commission. Re-running it will not duplicate payouts.",
+    "手动结算昨日返佣": "Settle Yesterday's Referral Commission",
+    "昨日返佣结算已执行：日期 {{date}}，结算 {{settled}} 人，返佣 {{rewarded}} 人，返佣额度 {{quota}}": "Yesterday's referral commission settlement completed: date {{date}}, settled {{settled}} users, rewarded {{rewarded}} users, commission quota {{quota}}",
+    "执行失败": "Execution failed",
+    "当前提成比例": "Current Commission Rate"
   }
 }
