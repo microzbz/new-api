@@ -18,18 +18,43 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Button } from '@douyinfe/semi-ui';
+import { Button, Modal } from '@douyinfe/semi-ui';
 
-const UsersActions = ({ setShowAddUser, t }) => {
+const UsersActions = ({
+  setShowAddUser,
+  selectedUsers = [],
+  batchDeleteDisabledUsers,
+  t,
+}) => {
   // Add new user
   const handleAddUser = () => {
     setShowAddUser(true);
+  };
+
+  const handleBatchDeleteDisabledUsers = () => {
+    Modal.confirm({
+      title: t('确定要删除选中的禁用用户吗？'),
+      content: t('此操作会注销选中的已禁用用户，操作不可逆。'),
+      okType: 'danger',
+      onOk: batchDeleteDisabledUsers,
+    });
   };
 
   return (
     <div className='flex gap-2 w-full md:w-auto order-2 md:order-1'>
       <Button className='w-full md:w-auto' onClick={handleAddUser} size='small'>
         {t('添加用户')}
+      </Button>
+      <Button
+        className='w-full md:w-auto'
+        type='danger'
+        size='small'
+        disabled={selectedUsers.length === 0}
+        onClick={handleBatchDeleteDisabledUsers}
+      >
+        {selectedUsers.length > 0
+          ? t('删除禁用用户') + ` (${selectedUsers.length})`
+          : t('删除禁用用户')}
       </Button>
     </div>
   );

@@ -186,6 +186,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			relayFormat = types.RelayFormatRerank
 		case constant.EndpointTypeImageGeneration:
 			relayFormat = types.RelayFormatOpenAIImage
+		case constant.EndpointTypeImageEdit:
+			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
 		default:
@@ -197,7 +199,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		if c.Request.URL.Path == "/v1/embeddings" {
 			relayFormat = types.RelayFormatEmbedding
 		}
-		if c.Request.URL.Path == "/v1/images/generations" {
+		if c.Request.URL.Path == "/v1/images/generations" || c.Request.URL.Path == "/v1/images/edits" {
 			relayFormat = types.RelayFormatOpenAIImage
 		}
 		if c.Request.URL.Path == "/v1/messages" {
@@ -617,6 +619,15 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Prompt: "a cute cat",
 				N:      lo.ToPtr(uint(1)),
 				Size:   "1024x1024",
+			}
+		case constant.EndpointTypeImageEdit:
+			return &dto.ImageRequest{
+				Model:          model,
+				Prompt:         "turn this reference image into a clean watercolor postcard",
+				Image:          json.RawMessage(`"https://placehold.co/512x512/png"`),
+				ResponseFormat: "url",
+				N:              lo.ToPtr(uint(1)),
+				Size:           "1024x1024",
 			}
 		case constant.EndpointTypeJinaRerank:
 			// 返回 RerankRequest

@@ -50,6 +50,7 @@ import {
   IconUser,
   IconLock,
   IconKey,
+  IconRefresh,
 } from '@douyinfe/semi-icons';
 import {
   onGitHubOAuthClicked,
@@ -80,6 +81,7 @@ const RegisterForm = () => {
     email: '',
     verification_code: '',
     wechat_verification_code: '',
+    captcha_code: '',
   });
   const { username, password, password2 } = inputs;
   const [userState, userDispatch] = useContext(UserContext);
@@ -89,6 +91,7 @@ const RegisterForm = () => {
   const [turnstileToken, setTurnstileToken] = useState('');
   const [showWeChatLoginModal, setShowWeChatLoginModal] = useState(false);
   const [showEmailRegister, setShowEmailRegister] = useState(false);
+  const [registerCaptcha, setRegisterCaptcha] = useState('');
   const [wechatLoading, setWechatLoading] = useState(false);
   const [githubLoading, setGithubLoading] = useState(false);
   const [discordLoading, setDiscordLoading] = useState(false);
@@ -96,6 +99,7 @@ const RegisterForm = () => {
   const [linuxdoLoading, setLinuxdoLoading] = useState(false);
   const [emailRegisterLoading, setEmailRegisterLoading] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
+  const [registerCaptchaLoading, setRegisterCaptchaLoading] = useState(false);
   const [verificationCodeLoading, setVerificationCodeLoading] = useState(false);
   const [otherRegisterOptionsLoading, setOtherRegisterOptionsLoading] =
     useState(false);
@@ -176,6 +180,12 @@ const RegisterForm = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (showEmailRegister || !hasOAuthRegisterOptions) {
+      void fetchRegisterCaptcha();
+    }
+  }, [showEmailRegister, hasOAuthRegisterOptions]);
+
   const onWeChatLoginClicked = () => {
     setWechatLoading(true);
     setShowWeChatLoginModal(true);
@@ -215,6 +225,26 @@ const RegisterForm = () => {
     setInputs((inputs) => ({ ...inputs, [name]: value }));
   }
 
+  const fetchRegisterCaptcha = async () => {
+    setRegisterCaptchaLoading(true);
+    try {
+      const res = await API.get('/api/user/register/captcha');
+      const { success, message, data } = res.data;
+      if (success) {
+        setRegisterCaptcha(data?.image || '');
+        setInputs((prev) => ({ ...prev, captcha_code: '' }));
+      } else {
+        setRegisterCaptcha('');
+        showError(message || '加载图形验证码失败');
+      }
+    } catch (error) {
+      setRegisterCaptcha('');
+      showError('加载图形验证码失败');
+    } finally {
+      setRegisterCaptchaLoading(false);
+    }
+  };
+
   async function handleSubmit(e) {
     if (password.length < 8) {
       showInfo('密码长度不得小于 8 位！');
@@ -222,6 +252,10 @@ const RegisterForm = () => {
     }
     if (password !== password2) {
       showInfo('两次输入的密码不一致');
+      return;
+    }
+    if (!inputs.captcha_code.trim()) {
+      showInfo('请输入图形验证码');
       return;
     }
     if (username && password) {
@@ -245,9 +279,11 @@ const RegisterForm = () => {
           showSuccess('注册成功！');
         } else {
           showError(message);
+          await fetchRegisterCaptcha();
         }
       } catch (error) {
         showError('注册失败，请重试');
+        await fetchRegisterCaptcha();
       } finally {
         setRegisterLoading(false);
       }
@@ -636,6 +672,42 @@ const RegisterForm = () => {
                     />
                   </>
                 )}
+
+                <div className='space-y-2'>
+                  <Form.Input
+                    field='captcha_code'
+                    label={t('图形验证码')}
+                    placeholder={t('请输入图形验证码')}
+                    name='captcha_code'
+                    value={inputs.captcha_code}
+                    onChange={(value) => handleChange('captcha_code', value)}
+                    prefix={<IconKey />}
+                  />
+                  <div className='flex items-center gap-3'>
+                    <div className='h-11 min-w-[132px] overflow-hidden rounded border border-gray-200 bg-gray-50 flex items-center justify-center'>
+                      {registerCaptcha ? (
+                        <img
+                          src={registerCaptcha}
+                          alt={t('图形验证码')}
+                          className='h-full w-full object-cover'
+                        />
+                      ) : (
+                        <Text type='tertiary' size='small'>
+                          {t('加载中')}
+                        </Text>
+                      )}
+                    </div>
+                    <Button
+                      theme='outline'
+                      type='tertiary'
+                      icon={<IconRefresh />}
+                      onClick={fetchRegisterCaptcha}
+                      loading={registerCaptchaLoading}
+                    >
+                      {t('刷新验证码')}
+                    </Button>
+                  </div>
+                </div>
 
                 {(hasUserAgreement || hasPrivacyPolicy) && (
                   <div className='pt-4'>

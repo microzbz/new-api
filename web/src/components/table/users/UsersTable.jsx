@@ -43,6 +43,7 @@ const UsersTable = (usersData) => {
     compactMode,
     handlePageChange,
     handlePageSizeChange,
+    rowSelection,
     handleRow,
     setEditingUser,
     setShowEditUser,
@@ -185,6 +186,7 @@ const UsersTable = (usersData) => {
         }}
         hidePagination={true}
         loading={loading}
+        rowSelection={rowSelection}
         onRow={handleRow}
         empty={
           <Empty

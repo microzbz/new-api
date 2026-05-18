@@ -53,6 +53,8 @@ const UsersPage = () => {
     groupOptions,
     loading,
     searching,
+    selectedUsers,
+    batchDeleteDisabledUsers,
 
     // Description state
     compactMode,
@@ -88,7 +90,12 @@ const UsersPage = () => {
         }
         actionsArea={
           <div className='flex flex-col md:flex-row justify-between items-center gap-2 w-full'>
-            <UsersActions setShowAddUser={setShowAddUser} t={t} />
+            <UsersActions
+              setShowAddUser={setShowAddUser}
+              selectedUsers={selectedUsers}
+              batchDeleteDisabledUsers={batchDeleteDisabledUsers}
+              t={t}
+            />
 
             <UsersFilters
               formInitValues={formInitValues}

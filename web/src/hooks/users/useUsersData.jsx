@@ -35,6 +35,7 @@ export const useUsersData = () => {
   const [searching, setSearching] = useState(false);
   const [groupOptions, setGroupOptions] = useState([]);
   const [userCount, setUserCount] = useState(0);
+  const [selectedUsers, setSelectedUsers] = useState([]);
 
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
@@ -69,6 +70,17 @@ export const useUsersData = () => {
     setUsers(users);
   };
 
+  const rowSelection = {
+    getCheckboxProps: (record) => ({
+      disabled: record.DeletedAt !== null || record.status !== 2,
+      name: record.username,
+    }),
+    selectedRowKeys: selectedUsers.map((user) => user.id),
+    onChange: (selectedRowKeys, selectedRows) => {
+      setSelectedUsers(selectedRows);
+    },
+  };
+
   // Load users data
   const loadUsers = async (startIdx, pageSize) => {
     setLoading(true);
@@ -79,6 +91,7 @@ export const useUsersData = () => {
       setActivePage(data.page);
       setUserCount(data.total);
       setUserFormat(newPageData);
+      setSelectedUsers([]);
     } else {
       showError(message);
     }
@@ -114,6 +127,7 @@ export const useUsersData = () => {
       setActivePage(data.page);
       setUserCount(data.total);
       setUserFormat(newPageData);
+      setSelectedUsers([]);
     } else {
       showError(message);
     }
@@ -152,6 +166,39 @@ export const useUsersData = () => {
     }
 
     setLoading(false);
+  };
+
+  const batchDeleteDisabledUsers = async () => {
+    if (selectedUsers.length === 0) {
+      showError(t('请先选择已禁用的用户'));
+      return;
+    }
+    setLoading(true);
+    try {
+      const ids = selectedUsers.map((user) => user.id);
+      const res = await API.post('/api/user/batch_delete_disabled', { ids });
+      const { success, message, data } = res.data;
+      if (success) {
+        const deletedCount = data?.deleted_count || selectedUsers.length;
+        const skippedCount = data?.skipped_ids?.length || 0;
+        showSuccess(
+          skippedCount > 0
+            ? t('已删除 {{count}} 个禁用用户，跳过 {{skipped}} 个无权限用户', {
+                count: deletedCount,
+                skipped: skippedCount,
+              })
+            : t('已删除 {{count}} 个禁用用户', { count: deletedCount }),
+        );
+        setSelectedUsers([]);
+        await refresh();
+      } else {
+        showError(message || t('删除失败'));
+      }
+    } catch (error) {
+      showError(error.message || t('删除失败'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetUserPasskey = async (user) => {
@@ -281,6 +328,8 @@ export const useUsersData = () => {
     activePage,
     pageSize,
     userCount,
+    selectedUsers,
+    rowSelection,
     searching,
     groupOptions,
 
@@ -305,6 +354,7 @@ export const useUsersData = () => {
     loadUsers,
     searchUsers,
     manageUser,
+    batchDeleteDisabledUsers,
     resetUserPasskey,
     resetUserTwoFA,
     handlePageChange,

@@ -241,6 +241,35 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 }
 
+func RelayImageTaskQuery(c *gin.Context) {
+	requestId := c.GetString(common.RequestIdKey)
+	var newAPIError *types.NewAPIError
+
+	defer func() {
+		if newAPIError != nil {
+			logger.LogError(c, fmt.Sprintf("relay image task query error: %s", newAPIError.Error()))
+			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			c.JSON(newAPIError.StatusCode, gin.H{
+				"error": newAPIError.ToOpenAIError(),
+			})
+		}
+	}()
+
+	modelName := strings.TrimSpace(c.Query("model"))
+	if modelName == "" {
+		modelName = "gpt-image-2"
+	}
+
+	request := &dto.ImageRequest{Model: modelName}
+	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAIImage, request, nil)
+	if err != nil {
+		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
+		return
+	}
+
+	newAPIError = relay.ImageTaskQueryHelper(c, relayInfo)
+}
+
 var upgrader = websocket.Upgrader{
 	Subprotocols: []string{"realtime"}, // WS 握手支持的协议，如果有使用 Sec-WebSocket-Protocol，则必须在此声明对应的 Protocol TODO add other protocol
 	CheckOrigin: func(r *http.Request) bool {

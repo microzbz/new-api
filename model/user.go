@@ -36,6 +36,7 @@ type User struct {
 	WeChatId             string         `json:"wechat_id" gorm:"column:wechat_id;index"`
 	TelegramId           string         `json:"telegram_id" gorm:"column:telegram_id;index"`
 	VerificationCode     string         `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
+	CaptchaCode          string         `json:"captcha_code" gorm:"-:all"`                                         // this field is only for register captcha verification, don't save it to database!
 	AccessToken          *string        `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota                int            `json:"quota" gorm:"type:int;default:0"`
 	UsedQuota            int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
@@ -203,14 +204,14 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	}()
 
 	// Get total count within transaction
-	err = tx.Unscoped().Model(&User{}).Count(&total).Error
+	err = tx.Model(&User{}).Count(&total).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
 
 	// Get paginated users within same transaction
-	err = tx.Unscoped().Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Omit("password").Find(&users).Error
+	err = tx.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Omit("password").Find(&users).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
@@ -241,7 +242,7 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 	}()
 
 	// 构建基础查询
-	query := tx.Unscoped().Model(&User{})
+	query := tx.Model(&User{})
 
 	// 构建搜索条件
 	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ?"
@@ -320,6 +321,34 @@ func DeleteUserById(id int) (err error) {
 	}
 	user := User{Id: id}
 	return user.Delete()
+}
+
+func DeleteDisabledUsersByIds(ids []int, operatorRole int) (int, []int, error) {
+	if len(ids) == 0 {
+		return 0, nil, errors.New("ids 为空！")
+	}
+
+	var users []User
+	if err := DB.Unscoped().
+		Where("id IN ? AND status = ? AND deleted_at IS NULL", ids, common.UserStatusDisabled).
+		Find(&users).Error; err != nil {
+		return 0, nil, err
+	}
+
+	deletedCount := 0
+	skippedIds := make([]int, 0, len(ids))
+	for _, user := range users {
+		if user.Role == common.RoleRootUser || (operatorRole <= user.Role && operatorRole != common.RoleRootUser) {
+			skippedIds = append(skippedIds, user.Id)
+			continue
+		}
+		if err := user.Delete(); err != nil {
+			return deletedCount, skippedIds, err
+		}
+		deletedCount++
+	}
+
+	return deletedCount, skippedIds, nil
 }
 
 func HardDeleteUserById(id int) error {

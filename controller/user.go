@@ -147,6 +147,10 @@ func Register(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
+	if err := verifyRegisterCaptcha(c, user.CaptchaCode); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if common.EmailVerificationEnabled {
 		if user.Email == "" || user.VerificationCode == "" {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailVerificationRequired)
@@ -786,6 +790,37 @@ func DeleteUser(c *gin.Context) {
 		})
 		return
 	}
+}
+
+type BatchDeleteDisabledUsersRequest struct {
+	Ids []int `json:"ids"`
+}
+
+func BatchDeleteDisabledUsers(c *gin.Context) {
+	var req BatchDeleteDisabledUsersRequest
+	if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil || len(req.Ids) == 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	deletedCount, skippedIds, err := model.DeleteDisabledUsersByIds(req.Ids, c.GetInt("role"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if deletedCount == 0 {
+		common.ApiError(c, errors.New("没有可删除的禁用用户"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"deleted_count": deletedCount,
+			"skipped_ids":   skippedIds,
+		},
+	})
 }
 
 func DeleteSelf(c *gin.Context) {

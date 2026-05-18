@@ -153,18 +153,24 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 			imageRequest.Prompt = formData.Get("prompt")
 			imageRequest.Model = formData.Get("model")
 			imageRequest.N = common.GetPointer(uint(common.String2Int(formData.Get("n"))))
+			if count := common.String2Int(formData.Get("count")); count > 0 {
+				imageRequest.Count = common.GetPointer(uint(count))
+			}
 			imageRequest.Quality = formData.Get("quality")
 			imageRequest.Size = formData.Get("size")
 			if imageValue := formData.Get("image"); imageValue != "" {
 				imageRequest.Image, _ = json.Marshal(imageValue)
 			}
 
-			if imageRequest.Model == "gpt-image-1" {
+			if imageRequest.Model == "" {
+				imageRequest.Model = "gpt-image-2"
+			}
+			if strings.HasPrefix(imageRequest.Model, "gpt-image-") {
 				if imageRequest.Quality == "" {
 					imageRequest.Quality = "standard"
 				}
 			}
-			if imageRequest.N == nil || *imageRequest.N == 0 {
+			if (imageRequest.N == nil || *imageRequest.N == 0) && (imageRequest.Count == nil || *imageRequest.Count == 0) {
 				imageRequest.N = common.GetPointer(uint(1))
 			}
 
@@ -183,8 +189,7 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 		}
 
 		if imageRequest.Model == "" {
-			//imageRequest.Model = "dall-e-3"
-			return nil, errors.New("model is required")
+			imageRequest.Model = "gpt-image-2"
 		}
 
 		if strings.Contains(imageRequest.Size, "×") {
@@ -209,7 +214,7 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 			if imageRequest.Size == "" {
 				imageRequest.Size = "1024x1024"
 			}
-		} else if imageRequest.Model == "gpt-image-1" {
+		} else if strings.HasPrefix(imageRequest.Model, "gpt-image-") {
 			if imageRequest.Quality == "" {
 				imageRequest.Quality = "auto"
 			}
@@ -219,7 +224,7 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 		//	return nil, errors.New("prompt is required")
 		//}
 
-		if imageRequest.N == nil || *imageRequest.N == 0 {
+		if (imageRequest.N == nil || *imageRequest.N == 0) && (imageRequest.Count == nil || *imageRequest.Count == 0) {
 			imageRequest.N = common.GetPointer(uint(1))
 		}
 	}

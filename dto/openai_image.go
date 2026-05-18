@@ -15,9 +15,11 @@ type ImageRequest struct {
 	Model             string          `json:"model"`
 	Prompt            string          `json:"prompt" binding:"required"`
 	N                 *uint           `json:"n,omitempty"`
+	Count             *uint           `json:"count,omitempty"`
 	Size              string          `json:"size,omitempty"`
 	Quality           string          `json:"quality,omitempty"`
 	ResponseFormat    string          `json:"response_format,omitempty"`
+	Async             *bool           `json:"async,omitempty"`
 	Style             json.RawMessage `json:"style,omitempty"`
 	User              json.RawMessage `json:"user,omitempty"`
 	ExtraFields       json.RawMessage `json:"extra_fields,omitempty"`
@@ -32,6 +34,9 @@ type ImageRequest struct {
 	WatermarkEnabled json.RawMessage `json:"watermark_enabled,omitempty"`
 	UserId           json.RawMessage `json:"user_id,omitempty"`
 	Image            json.RawMessage `json:"image,omitempty"`
+	Images           json.RawMessage `json:"images,omitempty"`
+	RefAssets        json.RawMessage `json:"ref_assets,omitempty"`
+	Mask             json.RawMessage `json:"mask,omitempty"`
 	// 用匿名参数接收额外参数
 	Extra map[string]json.RawMessage `json:"-"`
 }
@@ -161,6 +166,19 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 
 func (i *ImageRequest) IsStream(c *gin.Context) bool {
 	return false
+}
+
+func (i *ImageRequest) GetImageCount() uint {
+	if i == nil {
+		return 1
+	}
+	if i.N != nil && *i.N > 0 {
+		return *i.N
+	}
+	if i.Count != nil && *i.Count > 0 {
+		return *i.Count
+	}
+	return 1
 }
 
 func (i *ImageRequest) SetModelName(modelName string) {

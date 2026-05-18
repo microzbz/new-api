@@ -435,6 +435,9 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
 	switch info.RelayMode {
 	case relayconstant.RelayModeImagesEdits:
+		if !strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data") {
+			return request, nil
+		}
 
 		var requestBody bytes.Buffer
 		writer := multipart.NewWriter(&requestBody)
@@ -462,41 +465,16 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		}
 
 		if mf != nil && mf.File != nil {
-			// Check if "image" field exists in any form, including array notation
-			var imageFiles []*multipart.FileHeader
-			var exists bool
-
-			// First check for standard "image" field
-			if imageFiles, exists = mf.File["image"]; !exists || len(imageFiles) == 0 {
-				// If not found, check for "image[]" field
-				if imageFiles, exists = mf.File["image[]"]; !exists || len(imageFiles) == 0 {
-					// If still not found, iterate through all fields to find any that start with "image["
-					foundArrayImages := false
-					for fieldName, files := range mf.File {
-						if strings.HasPrefix(fieldName, "image[") && len(files) > 0 {
-							foundArrayImages = true
-							imageFiles = append(imageFiles, files...)
-						}
-					}
-
-					// If no image fields found at all
-					if !foundArrayImages && (len(imageFiles) == 0) {
-						return nil, errors.New("image is required")
-					}
-				}
+			imageFileParts := collectImageFileParts(mf.File)
+			if len(imageFileParts) == 0 {
+				return nil, errors.New("image is required")
 			}
 
-			// Process all image files
-			for i, fileHeader := range imageFiles {
+			for i, imagePart := range imageFileParts {
+				fileHeader := imagePart.file
 				file, err := fileHeader.Open()
 				if err != nil {
 					return nil, fmt.Errorf("failed to open image file %d: %w", i, err)
-				}
-
-				// If multiple images, use image[] as the field name
-				fieldName := "image"
-				if len(imageFiles) > 1 {
-					fieldName = "image[]"
 				}
 
 				// Determine MIME type based on file extension
@@ -504,7 +482,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 
 				// Create a form file with the appropriate content type
 				h := make(textproto.MIMEHeader)
-				h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldName, fileHeader.Filename))
+				h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, imagePart.field, fileHeader.Filename))
 				h.Set("Content-Type", mimeType)
 
 				part, err := writer.CreatePart(h)
@@ -558,6 +536,53 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	default:
 		return request, nil
 	}
+}
+
+type imageFilePart struct {
+	field string
+	file  *multipart.FileHeader
+}
+
+func collectImageFileParts(files map[string][]*multipart.FileHeader) []imageFilePart {
+	fieldAliases := []struct {
+		field    string
+		prefix   string
+		upstream string
+	}{
+		{field: "image", upstream: "image"},
+		{field: "image[]", upstream: "image[]"},
+		{prefix: "image[", upstream: "image[]"},
+		{field: "images", upstream: "images"},
+		{field: "images[]", upstream: "images[]"},
+		{prefix: "images[", upstream: "images[]"},
+		{field: "ref_assets", upstream: "ref_assets"},
+		{field: "ref_assets[]", upstream: "ref_assets[]"},
+		{prefix: "ref_assets[", upstream: "ref_assets[]"},
+	}
+
+	var parts []imageFilePart
+	processedFields := make(map[string]struct{})
+	for _, alias := range fieldAliases {
+		for fieldName, fileHeaders := range files {
+			if len(fileHeaders) == 0 {
+				continue
+			}
+			if _, ok := processedFields[fieldName]; ok {
+				continue
+			}
+			if alias.field != "" && fieldName != alias.field {
+				continue
+			}
+			if alias.prefix != "" && !strings.HasPrefix(fieldName, alias.prefix) {
+				continue
+			}
+			processedFields[fieldName] = struct{}{}
+			for _, fileHeader := range fileHeaders {
+				parts = append(parts, imageFilePart{field: alias.upstream, file: fileHeader})
+			}
+		}
+	}
+	return parts
 }
 
 // detectImageMimeType determines the MIME type based on the file extension
