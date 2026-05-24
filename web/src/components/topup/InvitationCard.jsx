@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Avatar,
   Typography,
@@ -27,8 +27,20 @@ import {
   Button,
   Space,
   Tag,
+  Tabs,
+  TabPane,
+  Table,
+  Empty,
 } from '@douyinfe/semi-ui';
-import { Copy, Users, BarChart2, TrendingUp, Gift } from 'lucide-react';
+import {
+  Copy,
+  Users,
+  BarChart2,
+  TrendingUp,
+  Gift,
+  RefreshCw,
+} from 'lucide-react';
+import { API, showError } from '../../helpers';
 
 const { Text } = Typography;
 
@@ -48,6 +60,86 @@ const InvitationCard = ({
     userState?.user?.aff_commission_percent >= 0
       ? t('个人设置')
       : t('跟随全局');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [invitedUsers, setInvitedUsers] = useState([]);
+  const [invitedTotal, setInvitedTotal] = useState(0);
+  const [invitedPage, setInvitedPage] = useState(1);
+  const [invitedPageSize, setInvitedPageSize] = useState(10);
+  const [invitedLoading, setInvitedLoading] = useState(false);
+
+  const loadInvitedUsers = useCallback(
+    async (page = invitedPage, pageSize = invitedPageSize) => {
+      setInvitedLoading(true);
+      try {
+        const res = await API.get(
+          `/api/user/aff/invited_users?p=${page}&page_size=${pageSize}`,
+        );
+        const { success, message, data } = res.data;
+        if (success) {
+          setInvitedUsers(data?.items || []);
+          setInvitedTotal(data?.total || 0);
+        } else {
+          showError(message || t('加载失败'));
+        }
+      } catch (error) {
+        showError(t('加载失败'));
+      } finally {
+        setInvitedLoading(false);
+      }
+    },
+    [invitedPage, invitedPageSize, t],
+  );
+
+  useEffect(() => {
+    if (activeTab === 'invited') {
+      loadInvitedUsers();
+    }
+  }, [activeTab, invitedPage, invitedPageSize, loadInvitedUsers]);
+
+  const invitedColumns = useMemo(
+    () => [
+      {
+        title: t('账户'),
+        dataIndex: 'username',
+        render: (text, record) => (
+          <div className='min-w-[140px]'>
+            <Text strong>{record.display_name || text || '-'}</Text>
+            <div>
+              <Text type='tertiary' size='small'>
+                {text ? `@${text}` : `ID ${record.id}`}
+              </Text>
+            </div>
+          </div>
+        ),
+      },
+      {
+        title: t('当前余额'),
+        dataIndex: 'quota',
+        render: (value) => renderQuota(value || 0),
+      },
+      {
+        title: t('已使用额度'),
+        dataIndex: 'used_quota',
+        render: (value) => renderQuota(value || 0),
+      },
+      {
+        title: t('返利'),
+        dataIndex: 'commission_quota',
+        render: (value) => renderQuota(value || 0),
+      },
+      {
+        title: t('结算消耗'),
+        dataIndex: 'consumed_quota',
+        render: (value) => renderQuota(value || 0),
+      },
+      {
+        title: t('请求次数'),
+        dataIndex: 'request_count',
+        render: (value) => value || 0,
+      },
+    ],
+    [renderQuota, t],
+  );
 
   return (
     <Card className='!rounded-2xl shadow-sm border-0'>
@@ -72,160 +164,200 @@ const InvitationCard = ({
         </div>
       </div>
 
-      {/* 收益展示区域 */}
-      <Space vertical style={{ width: '100%' }}>
-        {/* 统计数据统一卡片 */}
-        <Card
-          className='!rounded-xl w-full'
-          cover={
-            <div
-              className='relative h-30'
-              style={{
-                '--palette-primary-darkerChannel': '0 75 80',
-                backgroundImage: `linear-gradient(0deg, rgba(var(--palette-primary-darkerChannel) / 80%), rgba(var(--palette-primary-darkerChannel) / 80%)), url('/cover-4.webp')`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                backgroundRepeat: 'no-repeat',
-              }}
+      <Tabs activeKey={activeTab} onChange={setActiveTab} type='line'>
+        <TabPane tab={t('收益统计')} itemKey='overview'>
+          {/* 收益展示区域 */}
+          <Space vertical style={{ width: '100%' }}>
+            {/* 统计数据统一卡片 */}
+            <Card
+              className='!rounded-xl w-full'
+              cover={
+                <div
+                  className='relative h-30'
+                  style={{
+                    '--palette-primary-darkerChannel': '0 75 80',
+                    backgroundImage: `linear-gradient(0deg, rgba(var(--palette-primary-darkerChannel) / 80%), rgba(var(--palette-primary-darkerChannel) / 80%)), url('/cover-4.webp')`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    backgroundRepeat: 'no-repeat',
+                  }}
+                >
+                  {/* 标题和按钮 */}
+                  <div className='relative z-10 h-full flex flex-col justify-between p-4'>
+                    <div className='flex justify-between items-center'>
+                      <Text strong style={{ color: 'white', fontSize: '16px' }}>
+                        {t('收益统计')}
+                      </Text>
+                    </div>
+
+                    {/* 统计数据 */}
+                    <div className='grid grid-cols-3 gap-6 mt-4'>
+                      {/* 当前余额 */}
+                      <div className='text-center'>
+                        <div
+                          className='text-base sm:text-2xl font-bold mb-2'
+                          style={{ color: 'white' }}
+                        >
+                          {renderQuota(userState?.user?.quota || 0)}
+                        </div>
+                        <div className='flex items-center justify-center text-sm'>
+                          <TrendingUp
+                            size={14}
+                            className='mr-1'
+                            style={{ color: 'rgba(255,255,255,0.8)' }}
+                          />
+                          <Text
+                            style={{
+                              color: 'rgba(255,255,255,0.8)',
+                              fontSize: '12px',
+                            }}
+                          >
+                            {t('当前余额')}
+                          </Text>
+                        </div>
+                      </div>
+
+                      {/* 累计收益 */}
+                      <div className='text-center'>
+                        <div
+                          className='text-base sm:text-2xl font-bold mb-2'
+                          style={{ color: 'white' }}
+                        >
+                          {renderQuota(userState?.user?.aff_history_quota || 0)}
+                        </div>
+                        <div className='flex items-center justify-center text-sm'>
+                          <BarChart2
+                            size={14}
+                            className='mr-1'
+                            style={{ color: 'rgba(255,255,255,0.8)' }}
+                          />
+                          <Text
+                            style={{
+                              color: 'rgba(255,255,255,0.8)',
+                              fontSize: '12px',
+                            }}
+                          >
+                            {t('累计收益')}
+                          </Text>
+                        </div>
+                      </div>
+
+                      {/* 邀请人数 */}
+                      <div className='text-center'>
+                        <div
+                          className='text-base sm:text-2xl font-bold mb-2'
+                          style={{ color: 'white' }}
+                        >
+                          {userState?.user?.aff_count || 0}
+                        </div>
+                        <div className='flex items-center justify-center text-sm'>
+                          <Users
+                            size={14}
+                            className='mr-1'
+                            style={{ color: 'rgba(255,255,255,0.8)' }}
+                          />
+                          <Text
+                            style={{
+                              color: 'rgba(255,255,255,0.8)',
+                              fontSize: '12px',
+                            }}
+                          >
+                            {t('邀请人数')}
+                          </Text>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              }
             >
-              {/* 标题和按钮 */}
-              <div className='relative z-10 h-full flex flex-col justify-between p-4'>
-                <div className='flex justify-between items-center'>
-                  <Text strong style={{ color: 'white', fontSize: '16px' }}>
-                    {t('收益统计')}
+              {/* 邀请链接部分 */}
+              <Input
+                value={affLink}
+                readOnly
+                className='!rounded-lg'
+                prefix={t('邀请链接')}
+                suffix={
+                  <Button
+                    type='primary'
+                    theme='solid'
+                    onClick={handleAffLinkClick}
+                    icon={<Copy size={14} />}
+                    className='!rounded-lg'
+                  >
+                    {t('复制')}
+                  </Button>
+                }
+              />
+            </Card>
+
+            {/* 奖励说明 */}
+            <Card
+              className='!rounded-xl w-full'
+              title={<Text type='tertiary'>{t('奖励说明')}</Text>}
+            >
+              <div className='space-y-3'>
+                <div className='flex items-start gap-2'>
+                  <Badge dot type='success' />
+                  <Text type='tertiary' className='text-sm'>
+                    {t('邀请好友注册后，系统会按好友每日消耗的额度为您结算奖励')}
                   </Text>
                 </div>
 
-                {/* 统计数据 */}
-                <div className='grid grid-cols-3 gap-6 mt-4'>
-                  {/* 当前余额 */}
-                  <div className='text-center'>
-                    <div
-                      className='text-base sm:text-2xl font-bold mb-2'
-                      style={{ color: 'white' }}
-                    >
-                      {renderQuota(userState?.user?.quota || 0)}
-                    </div>
-                    <div className='flex items-center justify-center text-sm'>
-                      <TrendingUp
-                        size={14}
-                        className='mr-1'
-                        style={{ color: 'rgba(255,255,255,0.8)' }}
-                      />
-                      <Text
-                        style={{
-                          color: 'rgba(255,255,255,0.8)',
-                          fontSize: '12px',
-                        }}
-                      >
-                        {t('当前余额')}
-                      </Text>
-                    </div>
-                  </div>
+                <div className='flex items-start gap-2'>
+                  <Badge dot type='success' />
+                  <Text type='tertiary' className='text-sm'>
+                    {t('系统会在次日按比例自动把返佣转入您的账户余额中')}
+                  </Text>
+                </div>
 
-                  {/* 累计收益 */}
-                  <div className='text-center'>
-                    <div
-                      className='text-base sm:text-2xl font-bold mb-2'
-                      style={{ color: 'white' }}
-                    >
-                      {renderQuota(userState?.user?.aff_history_quota || 0)}
-                    </div>
-                    <div className='flex items-center justify-center text-sm'>
-                      <BarChart2
-                        size={14}
-                        className='mr-1'
-                        style={{ color: 'rgba(255,255,255,0.8)' }}
-                      />
-                      <Text
-                        style={{
-                          color: 'rgba(255,255,255,0.8)',
-                          fontSize: '12px',
-                        }}
-                      >
-                        {t('累计收益')}
-                      </Text>
-                    </div>
-                  </div>
-
-                  {/* 邀请人数 */}
-                  <div className='text-center'>
-                    <div
-                      className='text-base sm:text-2xl font-bold mb-2'
-                      style={{ color: 'white' }}
-                    >
-                      {userState?.user?.aff_count || 0}
-                    </div>
-                    <div className='flex items-center justify-center text-sm'>
-                      <Users
-                        size={14}
-                        className='mr-1'
-                        style={{ color: 'rgba(255,255,255,0.8)' }}
-                      />
-                      <Text
-                        style={{
-                          color: 'rgba(255,255,255,0.8)',
-                          fontSize: '12px',
-                        }}
-                      >
-                        {t('邀请人数')}
-                      </Text>
-                    </div>
-                  </div>
+                <div className='flex items-start gap-2'>
+                  <Badge dot type='success' />
+                  <Text type='tertiary' className='text-sm'>
+                    {t('邀请的好友越多，获得的奖励越多')}
+                  </Text>
                 </div>
               </div>
-            </div>
-          }
-        >
-          {/* 邀请链接部分 */}
-          <Input
-            value={affLink}
-            readonly
-            className='!rounded-lg'
-            prefix={t('邀请链接')}
-            suffix={
-              <Button
-                type='primary'
-                theme='solid'
-                onClick={handleAffLinkClick}
-                icon={<Copy size={14} />}
-                className='!rounded-lg'
-              >
-                {t('复制')}
-              </Button>
-            }
-          />
-        </Card>
+            </Card>
+          </Space>
+        </TabPane>
 
-        {/* 奖励说明 */}
-        <Card
-          className='!rounded-xl w-full'
-          title={<Text type='tertiary'>{t('奖励说明')}</Text>}
-        >
-          <div className='space-y-3'>
-            <div className='flex items-start gap-2'>
-              <Badge dot type='success' />
-              <Text type='tertiary' className='text-sm'>
-                {t('邀请好友注册后，系统会按好友每日消耗的额度为您结算奖励')}
-              </Text>
-            </div>
-
-            <div className='flex items-start gap-2'>
-              <Badge dot type='success' />
-              <Text type='tertiary' className='text-sm'>
-                {t('系统会在次日按比例自动把返佣转入您的账户余额中')}
-              </Text>
-            </div>
-
-            <div className='flex items-start gap-2'>
-              <Badge dot type='success' />
-              <Text type='tertiary' className='text-sm'>
-                {t('邀请的好友越多，获得的奖励越多')}
-              </Text>
-            </div>
+        <TabPane tab={t('已邀请用户')} itemKey='invited'>
+          <div className='flex items-center justify-between mb-3 gap-3'>
+            <Text type='tertiary'>
+              {t('共邀请')} {invitedTotal} {t('位用户')}
+            </Text>
+            <Button
+              size='small'
+              icon={<RefreshCw size={14} />}
+              onClick={() => loadInvitedUsers()}
+            >
+              {t('刷新')}
+            </Button>
           </div>
-        </Card>
-      </Space>
+          <Table
+            columns={invitedColumns}
+            dataSource={invitedUsers}
+            loading={invitedLoading}
+            rowKey='id'
+            size='small'
+            scroll={{ x: 720 }}
+            pagination={{
+              currentPage: invitedPage,
+              pageSize: invitedPageSize,
+              total: invitedTotal,
+              showSizeChanger: true,
+              pageSizeOpts: [10, 20, 50, 100],
+              onPageChange: setInvitedPage,
+              onPageSizeChange: (size) => {
+                setInvitedPageSize(size);
+                setInvitedPage(1);
+              },
+            }}
+            empty={<Empty description={t('暂无已邀请用户')} />}
+          />
+        </TabPane>
+      </Tabs>
     </Card>
   );
 };

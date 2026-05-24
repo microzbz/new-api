@@ -376,6 +376,64 @@ type AffCommissionReward struct {
 	Quota     int
 }
 
+type InvitedUserSummary struct {
+	Id              int    `json:"id"`
+	Username        string `json:"username"`
+	DisplayName     string `json:"display_name"`
+	Email           string `json:"email"`
+	Quota           int    `json:"quota"`
+	UsedQuota       int    `json:"used_quota"`
+	RequestCount    int    `json:"request_count"`
+	ConsumedQuota   int64  `json:"consumed_quota"`
+	CommissionQuota int64  `json:"commission_quota"`
+}
+
+func CountInvitedUsers(inviterId int) (int64, error) {
+	if inviterId == 0 {
+		return 0, nil
+	}
+	var count int64
+	err := DB.Model(&User{}).Where("inviter_id = ?", inviterId).Count(&count).Error
+	return count, err
+}
+
+func GetInvitedUserSummaries(inviterId int, startIdx int, pageSize int) ([]InvitedUserSummary, int64, error) {
+	if inviterId == 0 {
+		return []InvitedUserSummary{}, 0, nil
+	}
+
+	var total int64
+	if err := DB.Model(&User{}).Where("inviter_id = ?", inviterId).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	summaries := make([]InvitedUserSummary, 0)
+	query := DB.Table("users AS invitees").
+		Select(`
+			invitees.id,
+			invitees.username,
+			invitees.display_name,
+			invitees.email,
+			invitees.quota,
+			invitees.used_quota,
+			invitees.request_count,
+			COALESCE(SUM(aff_daily_commission_settlements.consumed_quota), 0) AS consumed_quota,
+			COALESCE(SUM(aff_daily_commission_settlements.commission_quota), 0) AS commission_quota
+		`).
+		Joins("LEFT JOIN aff_daily_commission_settlements ON aff_daily_commission_settlements.invitee_id = invitees.id AND aff_daily_commission_settlements.inviter_id = ?", inviterId).
+		Where("invitees.inviter_id = ?", inviterId).
+		Where("invitees.deleted_at IS NULL").
+		Group("invitees.id, invitees.username, invitees.display_name, invitees.email, invitees.quota, invitees.used_quota, invitees.request_count").
+		Order("invitees.id DESC").
+		Limit(pageSize).
+		Offset(startIdx)
+
+	if err := query.Scan(&summaries).Error; err != nil {
+		return nil, 0, err
+	}
+	return summaries, total, nil
+}
+
 func (user *User) GetEffectiveAffCommissionPercent() int {
 	if user.AffCommissionPercent >= 0 {
 		return user.AffCommissionPercent
@@ -553,8 +611,8 @@ func (user *User) Insert(inviterId int) error {
 		if common.QuotaForInviter > 0 {
 			//_ = IncreaseUserQuota(inviterId, common.QuotaForInviter)
 			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
 		}
+		_ = inviteUser(inviterId)
 	}
 	return nil
 }
@@ -618,8 +676,8 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 		}
 		if common.QuotaForInviter > 0 {
 			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(common.QuotaForInviter)))
-			_ = inviteUser(inviterId)
 		}
+		_ = inviteUser(inviterId)
 	}
 }
 

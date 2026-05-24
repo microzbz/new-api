@@ -209,3 +209,128 @@ func TestSettleAffDailyCommissionForDateIdempotent(t *testing.T) {
 	require.NoError(t, DB.Model(&AffDailyCommissionSettlement{}).Where("invitee_id = ? AND settle_date = ?", invitee.Id, "2026-04-05").Count(&count).Error)
 	require.EqualValues(t, 1, count)
 }
+
+func TestInsertCountsInviteWhenInviterRewardIsZero(t *testing.T) {
+	setupAffDailyCommissionTestDB(t)
+
+	oldQuotaForInviter := common.QuotaForInviter
+	oldQuotaForInvitee := common.QuotaForInvitee
+	oldQuotaForNewUser := common.QuotaForNewUser
+	t.Cleanup(func() {
+		common.QuotaForInviter = oldQuotaForInviter
+		common.QuotaForInvitee = oldQuotaForInvitee
+		common.QuotaForNewUser = oldQuotaForNewUser
+	})
+	common.QuotaForInviter = 0
+	common.QuotaForInvitee = 0
+	common.QuotaForNewUser = 0
+
+	inviter := createAffDailyCommissionUser(t, User{
+		Username: "zero-reward-count-inviter",
+		Password: "password123",
+		AffCode:  "aff-zero-reward-count",
+	})
+	invitee := User{
+		Username:             "zero-reward-count-invitee",
+		Password:             "password123",
+		InviterId:            inviter.Id,
+		AffCommissionPercent: -1,
+	}
+	require.NoError(t, invitee.Insert(inviter.Id))
+
+	inviter = fetchUserForAffDailyCommissionTest(t, inviter.Id)
+	require.Equal(t, 1, inviter.AffCount)
+
+	count, err := CountInvitedUsers(inviter.Id)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+}
+
+func TestGetInvitedUserSummaries(t *testing.T) {
+	setupAffDailyCommissionTestDB(t)
+
+	inviter := createAffDailyCommissionUser(t, User{
+		Username: "summary-inviter",
+		Password: "password123",
+		AffCode:  "aff-summary-inviter",
+	})
+	otherInviter := createAffDailyCommissionUser(t, User{
+		Username: "summary-other-inviter",
+		Password: "password123",
+		AffCode:  "aff-summary-other",
+	})
+	inviteeA := createAffDailyCommissionUser(t, User{
+		Username:     "summary-invitee-a",
+		DisplayName:  "Invitee A",
+		Password:     "password123",
+		AffCode:      "aff-summary-a",
+		InviterId:    inviter.Id,
+		Quota:        1200,
+		UsedQuota:    300,
+		RequestCount: 7,
+	})
+	inviteeB := createAffDailyCommissionUser(t, User{
+		Username:  "summary-invitee-b",
+		Password:  "password123",
+		AffCode:   "aff-summary-b",
+		InviterId: inviter.Id,
+		Quota:     500,
+	})
+
+	settlements := []AffDailyCommissionSettlement{
+		{
+			InviteeId:         inviteeA.Id,
+			InviterId:         inviter.Id,
+			SettleDate:        "2026-04-01",
+			StartTimestamp:    1,
+			EndTimestamp:      2,
+			ConsumedQuota:     1000,
+			CommissionPercent: 1,
+			CommissionQuota:   10,
+			CreatedAt:         3,
+		},
+		{
+			InviteeId:         inviteeA.Id,
+			InviterId:         inviter.Id,
+			SettleDate:        "2026-04-02",
+			StartTimestamp:    4,
+			EndTimestamp:      5,
+			ConsumedQuota:     2000,
+			CommissionPercent: 1,
+			CommissionQuota:   20,
+			CreatedAt:         6,
+		},
+		{
+			InviteeId:         inviteeB.Id,
+			InviterId:         otherInviter.Id,
+			SettleDate:        "2026-04-01",
+			StartTimestamp:    1,
+			EndTimestamp:      2,
+			ConsumedQuota:     9999,
+			CommissionPercent: 1,
+			CommissionQuota:   99,
+			CreatedAt:         3,
+		},
+	}
+	require.NoError(t, DB.Create(&settlements).Error)
+
+	summaries, total, err := GetInvitedUserSummaries(inviter.Id, 0, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, total)
+	require.Len(t, summaries, 2)
+
+	byId := map[int]InvitedUserSummary{}
+	for _, summary := range summaries {
+		byId[summary.Id] = summary
+	}
+
+	require.Equal(t, "summary-invitee-a", byId[inviteeA.Id].Username)
+	require.Equal(t, "Invitee A", byId[inviteeA.Id].DisplayName)
+	require.Equal(t, 1200, byId[inviteeA.Id].Quota)
+	require.Equal(t, 300, byId[inviteeA.Id].UsedQuota)
+	require.Equal(t, 7, byId[inviteeA.Id].RequestCount)
+	require.EqualValues(t, 3000, byId[inviteeA.Id].ConsumedQuota)
+	require.EqualValues(t, 30, byId[inviteeA.Id].CommissionQuota)
+	require.EqualValues(t, 0, byId[inviteeB.Id].ConsumedQuota)
+	require.EqualValues(t, 0, byId[inviteeB.Id].CommissionQuota)
+}
